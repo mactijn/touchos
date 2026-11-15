@@ -9,19 +9,50 @@ The Toon's actual job as a thermostat: talk to the boiler through the Ketelmodul
 - **Open:** what the Ketelmodule actually sends: rate, framing, and how OpenTherm frames are wrapped.
 - **Steps:**
   1. With a boiler behind the Ketelmodule: record what arrives, and decode it.
-  2. The boiler's state (flow and return temperature, modulation, flame, pressure) as Home Assistant sensors.
-  3. Sending (setpoints) only after reading works well, and with care: it controls the heating.
+  2. The boiler's state (flow and return temperature, modulation, flame, pressure) as Home Assistant sensors, through the bridges (see "Home Assistant bridges").
+  3. Sending (setpoints) only after reading works well, and with care: it controls the heating. First find out what the Ketelmodule and the boiler do when touchos stops talking.
 
-## Z-Wave: the meter adapter's readings
+All three: [#3](https://github.com/mactijn/touchos/issues/3).
+
+## The thermostat
+touchos runs the heating itself and offers it to Home Assistant as a `climate` entity. The heating keeps working when Home Assistant or the network is down, and the panel's own dashboard controls it directly.
+
+- **Today:** the board's two ADT7410 sensors (I2C1, `0x48`, `0x49`) are read every 5 minutes and only logged (`servers/platform`). They sit next to the processor, backlight and Wi-Fi chip, so they read above the room temperature.
+- **Steps:**
+  1. The room temperature: read both sensors often, find which one follows the room best, and add an offset and smoothing ([#18](https://github.com/mactijn/touchos/issues/18)).
+  2. `servers/thermostat`, the control loop ([#19](https://github.com/mactijn/touchos/issues/19)):
+     - target, mode (heat/off) and presets (comfort/eco/away), kept across reboots;
+     - on/off with hysteresis first, then a PI controller on the boiler's CH setpoint;
+     - frost protection;
+     - a dashboard tile that works without Home Assistant;
+     - a dry run that logs what it would send until the boiler link can send (step 3 above).
+  3. Later: a weekly schedule on the panel. Until then, Home Assistant automations can switch presets.
+
+## Z-Wave: local and passthrough modes
 The ZW0301 controller runs on UART3 at 115200 (`servers/zwave`, `libs/zwave`). It can make a network of its own, pair a device (`zwave=pair`, `reset-pair`, `include` on the boot command line), ping, and ask Manufacturer Specific and Version. What's missing is the data.
 
-- **Why:** an Eneco meter adapter on the electricity and gas meters is the Toon's other main source of data.
-- **Open:** what the adapter sends unprompted once it's on a meter (Meter Table Monitor/Push, Meter, possibly CRC-16 encapsulated). Stock `hdrv_zwave` has debug info and is the reference.
+- **Why:** an Eneco meter adapter on the electricity and gas meters is the Toon's other main source of data, and the radio can serve other Z-Wave devices in the house too.
+- **Two modes** (`zwave.mode`). The network lives in the chip, so switching keeps the paired devices.
+  - **local:** touchos is the controller and the application: the meter adapter, switches and plugs, dimmers and sensors. Optionally exposed to Home Assistant through the bridges (see "Home Assistant bridges").
+  - **passthrough:** the Serial API, bridged byte for byte over TCP, so Home Assistant's Z-Wave JS drives the radio (`tcp://<panel>:<port>`), for one allowed IP.
+- **Open:**
+  - Whether Z-Wave JS accepts a 300-series controller (Serial API 4.55, Z-Wave 3.67); it officially targets 500 series and later.
+  - What the meter adapter sends unprompted once it's on a meter (Meter Table Monitor/Push, Meter, possibly CRC-16 encapsulated). Stock `hdrv_zwave` has debug info and is the reference.
 - **Steps:**
-  1. Decode the adapter's reports, and its gas and electricity endpoints (Multi Channel).
-  2. Publish them as Home Assistant sensors.
-  3. Pairing from the settings page instead of a boot switch. Untested so far: the 5 s wait before asking a new node.
-  4. Later: other device types (Switch Binary, Sensor Multilevel) and security (S0/S2).
+  1. The mode setting and the TCP passthrough; settles the Z-Wave JS question ([#14](https://github.com/mactijn/touchos/issues/14)).
+  2. Local mode ([#15](https://github.com/mactijn/touchos/issues/15)):
+     - command classes, including the meter adapter's reports and its gas and electricity endpoints;
+     - the shared entity model the bridges read;
+     - a node cache;
+     - pairing from the settings page instead of a boot switch. Untested so far: the 5 s wait before asking a new node.
+  3. Later: security (S0/S2), needed for locks.
+
+## Home Assistant bridges
+Nothing goes from the panel to Home Assistant yet: `servers/ha` only mirrors Home Assistant's states for the dashboard. The bridges publish the panel's own devices. They read one shared entity model (`libs/proto/src/entity.rs`): Z-Wave devices in local mode, the room temperature, the thermostat and the boiler's sensors. Each source writes its own board and takes commands on its own ring.
+
+- **Steps:**
+  1. MQTT, with Home Assistant's MQTT discovery; needs a broker ([#16](https://github.com/mactijn/touchos/issues/16)).
+  2. The ESPHome native API, so no broker is needed. Without mDNS (see "Fewer wake-ups"), the panel is added by IP ([#17](https://github.com/mactijn/touchos/issues/17)).
 
 ## Wi-Fi follow-ups
 The RT5370 runs as a WPA2 station; these are the loose ends.
@@ -85,7 +116,6 @@ Sound for the panel: alerts, a doorbell chime, button feedback. One `audio` serv
   3. Volume in the settings, and a mute during night hours.
 
 ## Smaller hardware items
-- **The ADT7410 temperature** (I2C1, `0x49`) is read but only logged: show it on the dashboard or report it to Home Assistant.
 - **The SPI EEPROM:** declared at `spi0.0` (CS0 = PD28), but nothing answers there, so it is probably not fitted. Look at the board for an 8-pin chip marked 25640; if one is there, find what cuts it off.
 - **PE18:** touchos sets it high for the external USB port, but the stock kernel says it is CS1 of `spi0`, the Z-Wave chip's programming port. Check whether the USB port works without it.
 - **The debug LEDs:** `leds-gpio` on GPIO port F (from `ed20.cfg`); their function is unknown.
