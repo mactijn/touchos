@@ -40,8 +40,8 @@ impl Backlight {
         Some(Backlight { regs, period })
     }
 
-    /// Brightness in 0.1 % steps (0..=1000).
-    pub fn set_permille(&self, p: u32) {
+    /// Brightness in 0.01 % steps (0..=10000).
+    pub fn set_permyriad(&self, p: u32) {
         // PWMSAR feeds a 4-sample FIFO (PWMSR bits 2:0 = samples in it);
         // a full FIFO drops the write. One sample lasts one period.
         for _ in 0..1000 {
@@ -49,6 +49,6 @@ impl Backlight {
                 break;
             }
         }
-        self.regs.w32(PWMSAR, self.period * p.min(1000) / 1000);
+        self.regs.w32(PWMSAR, self.period * p.min(10_000) / 10_000);
     }
 }
