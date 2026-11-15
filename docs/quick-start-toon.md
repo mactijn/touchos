@@ -9,7 +9,7 @@ You load touchos once over JTAG from a Raspberry Pi. After that the Toon boots t
 ## What you need
 
 - **An Eneco Toon v1**, the first model (Prodrive ED2.0 board, Freescale i.MX27). The Toon 2 is different hardware and won't work. Power it the way it is normally powered, through its boiler module.
-- **A Raspberry Pi 4** with Raspberry Pi OS (bookworm), reachable over SSH with a key. It drives the Toon's JTAG and serial console.
+- **A Raspberry Pi 4** with Raspberry Pi OS (trixie or bookworm; Lite is enough), reachable over SSH with a key. It drives the Toon's JTAG and serial console.
 - **11 jumper wires** (female to female) from the Pi's header to the Toon's 14-pin JTAG header. [ToonRooter](https://github.com/martenjacobs/ToonRooter) shows where the header is.
 - **A Linux PC** for building, with:
   - [rustup](https://rustup.rs) (the right nightly toolchain installs itself from `rust-toolchain.toml`) and `git`;
@@ -37,13 +37,13 @@ QEMU has no screen here; the log shows the system starting. While it runs, the s
 
 ## 3. Prepare the Pi
 
-1. Turn on the serial port and turn off the serial login. In `sudo raspi-config` → Interface Options → Serial Port, answer *no* to the login shell and *yes* to the hardware. This puts `enable_uart=1` in `/boot/firmware/config.txt`.
+1. Turn on the serial port and turn off the serial login. In `sudo raspi-config` → Interface Options → Serial Port, answer *no* to the login shell and *yes* to the hardware, then reboot. This puts `enable_uart=1` in `/boot/firmware/config.txt` and keeps the serial port out of `/boot/firmware/cmdline.txt`.
 2. Install the tools and give your user the serial port and GPIO pins:
    ```sh
    sudo apt install openocd python3-serial
-   sudo usermod -aG dialout,gpio $USER      # then log in again
+   sudo usermod -aG dialout,gpio $USER      # then log in again (the first user is in both already)
    ```
-   Raspberry Pi OS's `openocd` (0.12) has the `bcm2835gpio` driver that `pi4-jtag.cfg` uses.
+   Raspberry Pi OS's own `openocd` build (0.12) has the `bcm2835gpio` driver that `pi4-jtag.cfg` uses.
 3. Copy the Toon tools to the Pi, from your touchos checkout:
    ```sh
    ssh pi@raspberrypi.local 'mkdir -p touchos-toon toon-backup'
@@ -71,14 +71,14 @@ Pins 1 (RTCK) and 9 (Vt, 3.3 V) stay unconnected.
 
 ## 5. Start the console and back up the NAND
 
-Start the console service on the Pi **before** the Toon gets power. It logs the Toon's console and types U-Boot's password, so the Toon stops at the U-Boot prompt instead of starting the stock system:
+On the Pi, start the console service **before** the Toon gets power. It logs the Toon's console and types U-Boot's password, so the Toon stops at the U-Boot prompt instead of starting the stock system:
 
 ```sh
 cd ~/touchos-toon && echo auto > autostop && touch guard
 setsid nohup python3 toonconsole.py >console.err 2>&1 </dev/null &
 ```
 
-Now power the Toon. Check that it answers:
+Now power the Toon. (If it is on already, `./toon-ocd reset` restarts it, and it stops at the U-Boot prompt the same way.) Check that it answers:
 
 ```sh
 tail ~/toon-backup/serial.log    # U-Boot's banner, then "(autostop: password sent)"
