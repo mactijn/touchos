@@ -495,16 +495,25 @@ pub async fn task(mut fb: Framebuffer) {
                 dirty = true;
             }
         }
-        // While something on screen follows the clock (a press's highlight,
-        // a held power button, a finger moving, the pointer), frames come
-        // every 16 ms. Otherwise we sleep until an event (input, HA, the
-        // network, the PIN), checking every second for what changes with
-        // time (the minute, dimming, the PIN's countdown, settings).
-        let moving = ui.pressed.is_some() || power_down_at.is_some() || ui.gesture != Gesture::None || ui.pointer_visible();
+        // While something follows the clock (a press's highlight, a held
+        // power button, a finger moving, the pointer, the backlight fading),
+        // we come back every 16 ms. Otherwise we sleep until an event (input,
+        // HA, the network, the PIN), checking every second for what changes
+        // with time (the minute, the PIN's countdown, settings), and on time
+        // for the screen to start dimming.
+        let moving = ui.pressed.is_some()
+            || power_down_at.is_some()
+            || ui.gesture != Gesture::None
+            || ui.pointer_visible()
+            || screen.fading();
         if moving || dirty {
             exec::sleep_ms(16).await;
         } else {
-            exec::wait_bits_or_ms(events::bit(), 1000).await;
+            let wait = match screen.ms_until_idle() {
+                0 => 1000,
+                ms => ms.min(1000),
+            };
+            exec::wait_bits_or_ms(events::bit(), wait).await;
         }
     }
 }
