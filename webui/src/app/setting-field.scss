@@ -1,0 +1,47 @@
+:host {
+  display: block;
+  padding: 12px 16px 12px 13px;
+  border-left: 3px solid transparent;
+  border-radius: 0 8px 8px 0;
+  transition:
+    border-color 150ms,
+    background-color 150ms;
+}
+
+// Edited but not saved yet.
+:host(.changed) {
+  border-left-color: var(--mat-sys-primary);
+  background: color-mix(in srgb, var(--mat-sys-primary) 6%, transparent);
+}
+
+mat-form-field {
+  width: 100%;
+}
+
+.apply {
+  color: var(--mat-sys-on-surface-variant);
+  width: 18px;
+  height: 18px;
+}
+
+.choice .label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font: var(--mat-sys-body-large);
+  margin-bottom: 8px;
+}
+
+mat-button-toggle-group {
+  flex-wrap: wrap;
+}
+
+.hint {
+  margin: 6px 0 0;
+  font: var(--mat-sys-body-small);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+mat-error {
+  white-space: normal;
+}

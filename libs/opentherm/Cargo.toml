@@ -1,0 +1,10 @@
+[package]
+name = "touchos-opentherm"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+description = "OpenTherm frames: parse and check them, name the data IDs, decode their values"
+
+[lib]
+bench = false

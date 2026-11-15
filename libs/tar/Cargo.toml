@@ -1,0 +1,10 @@
+[package]
+name = "touchos-tar"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+description = "The initrd's ustar archives: the reader (kernel, init) and the writer (xtask)"
+
+[lib]
+bench = false

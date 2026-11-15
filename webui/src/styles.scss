@@ -1,0 +1,105 @@
+// Material 3 theme, light or dark following the browser. No web fonts: the
+// panel's page must work without the internet.
+@use '@angular/material' as mat;
+
+html {
+  color-scheme: light dark;
+  @include mat.theme(
+    (
+      color: (
+        primary: mat.$orange-palette,
+        tertiary: mat.$azure-palette,
+        theme-type: color-scheme,
+      ),
+      typography: (
+        plain-family: (
+          system-ui,
+          -apple-system,
+          'Segoe UI',
+          Roboto,
+          sans-serif,
+        ),
+        brand-family: (
+          system-ui,
+          -apple-system,
+          'Segoe UI',
+          Roboto,
+          sans-serif,
+        ),
+      ),
+      density: 0,
+    )
+  );
+}
+
+html {
+  // Placeholders show defaults: they must not look like values.
+  --mat-form-field-outlined-input-text-placeholder-color: var(--mat-sys-outline);
+}
+
+.mat-mdc-input-element::placeholder,
+.mat-mdc-chip-input::placeholder {
+  font-style: italic;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--mat-sys-surface);
+  color: var(--mat-sys-on-surface);
+  font: var(--mat-sys-body-large);
+}
+
+// Icons are inline SVGs (icons.ts): color them like text.
+mat-icon svg {
+  fill: currentColor;
+}
+
+code,
+pre {
+  font-family: ui-monospace, 'Cascadia Mono', 'DejaVu Sans Mono', monospace;
+}
+
+// A page's heading block (every routed page starts with one).
+.page-head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin: 8px 0 24px;
+
+  > mat-icon {
+    width: 40px;
+    height: 40px;
+    padding: 8px;
+    border-radius: 12px;
+    background: var(--mat-sys-secondary-container);
+    color: var(--mat-sys-on-secondary-container);
+    flex: none;
+  }
+
+  h1 {
+    font: var(--mat-sys-headline-small);
+    margin: 0;
+  }
+
+  p {
+    margin: 2px 0 0;
+    color: var(--mat-sys-on-surface-variant);
+    font: var(--mat-sys-body-medium);
+  }
+}
+
+.mat-mdc-card + .mat-mdc-card {
+  margin-top: 16px;
+}
+
+// Snackbars that report a problem.
+.snack-bad {
+  --mat-snack-bar-container-color: var(--mat-sys-error-container);
+  --mat-snack-bar-supporting-text-color: var(--mat-sys-on-error-container);
+  --mat-snack-bar-button-color: var(--mat-sys-on-error-container);
+}

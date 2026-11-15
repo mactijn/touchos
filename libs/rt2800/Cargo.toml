@@ -1,0 +1,21 @@
+[package]
+name = "touchos-rt2800"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+description = "Ralink RT2800 USB Wi-Fi (the Toon's RT5370): firmware, calibration ROM, MAC/BBP/RF init, channels, receive, transmit and the station set-up; a port of OpenBSD's run(4) (ISC)"
+
+[lib]
+bench = false
+
+[dependencies]
+log.workspace = true
+touchos-wlan = { path = "../wlan" }
+
+# The chip talks USB through the runtime; the frame parsing (rxframe) and
+# the register numbers don't, so they build and are tested on the host.
+[target.'cfg(target_os = "none")'.dependencies]
+touchos-rt = { path = "../rt" }
+touchos-drv = { path = "../drv" }
+touchos-usb = { path = "../usb" }

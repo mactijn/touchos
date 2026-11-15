@@ -1,0 +1,21 @@
+[package]
+name = "touchos-srv-config"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+description = "The one owner of the settings: serves them, notifies changes, saves checked patches"
+
+[[bin]]
+name = "config"
+path = "src/main.rs"
+test = false
+bench = false
+
+[dependencies]
+touchos-rt = { path = "../../libs/rt" }
+touchos-abi = { path = "../../libs/abi" }
+log.workspace = true
+touchos-config = { path = "../../libs/config" }
+touchos-proto = { path = "../../libs/proto" }
+touchos-civil = { path = "../../libs/civil" }

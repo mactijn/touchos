@@ -1,0 +1,23 @@
+[package]
+name = "touchos-srv-usb"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+description = "The USB stack on the board's EHCI: enumeration, USB disks (read-only), USB Ethernet"
+
+[[bin]]
+name = "usb"
+path = "src/main.rs"
+test = false
+bench = false
+
+[dependencies]
+touchos-rt = { path = "../../libs/rt" }
+touchos-proto = { path = "../../libs/proto" }
+touchos-drv = { path = "../../libs/drv" }
+touchos-usb = { path = "../../libs/usb" }
+log.workspace = true
+
+touchos-blockdev = { path = "../../libs/blockdev" }
+touchos-gpt = { path = "../../libs/gpt" }

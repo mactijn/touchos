@@ -1,0 +1,23 @@
+[package]
+name = "toon-nandboot"
+version = "0.1.0"
+edition = "2024"
+publish = false
+license = "MIT"
+description = "The Toon's boot stage in NAND, and the flasher that writes it"
+
+# Not part of the touchos workspace: bare metal for the Toon's ARM926,
+# built for armv5te-none-eabi (see .cargo/config.toml).
+[workspace]
+
+[dependencies]
+touchos-nand = { path = "../../../libs/nand" }
+
+[profile.dev]
+panic = "abort"
+opt-level = "s"
+
+[profile.release]
+panic = "abort"
+opt-level = "s"
+debug = true

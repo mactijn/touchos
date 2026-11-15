@@ -1,0 +1,39 @@
+#!/usr/bin/env python3
+"""Screenshot of the dashboard in QEMU (`cargo xtask qemu`): asks the
+monitor to save the framebuffer (RAM + 0x1400000, 800x480 RGB565) and turns
+it into a PNG.
+
+    fbshot [out.png] [monitor socket]
+"""
+import os
+import socket
+import subprocess
+import sys
+
+here = os.path.dirname(os.path.abspath(__file__))
+out = sys.argv[1] if len(sys.argv) > 1 else "fb.png"
+sock = sys.argv[2] if len(sys.argv) > 2 else os.path.join(here, "../../build/arm-imx25/monitor.sock")
+raw = os.path.join(os.path.dirname(os.path.abspath(sock)), "fb.raw")
+
+
+
+def prompt(s):
+    """Read up to the monitor's prompt (commands sent before it are lost)."""
+    buf = b""
+    while not buf.endswith(b"(qemu) "):
+        data = s.recv(4096)
+        if not data:
+            sys.exit("monitor closed the connection")
+        buf += data
+
+
+s = socket.socket(socket.AF_UNIX)
+s.settimeout(10)
+s.connect(sock)
+prompt(s)
+# (Quoted: the monitor would read "768000 /path" as a division.)
+s.sendall(f"pmemsave 0x81400000 768000 \"{raw}\"\n".encode())
+prompt(s)
+s.close()
+subprocess.run([sys.executable, os.path.join(here, "fb2png.py"), raw, out], check=True)
+print(out)

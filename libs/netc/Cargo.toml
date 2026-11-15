@@ -1,0 +1,24 @@
+[package]
+name = "touchos-netc"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+description = "Client of the touchos net server: TCP streams, DNS, TLS"
+
+[lib]
+test = false
+bench = false
+
+[features]
+tls = ["dep:embedded-tls", "dep:embedded-io", "dep:embedded-io-async", "dep:rand_core"]
+
+[dependencies]
+touchos-rt = { path = "../rt" }
+touchos-abi = { path = "../abi" }
+touchos-proto = { path = "../proto" }
+log.workspace = true
+embedded-tls = { version = "0.19", default-features = false, features = ["log", "rustpki", "p384", "rsa", "alloc"], optional = true }
+embedded-io = { version = "0.7", optional = true }
+embedded-io-async = { version = "0.7", optional = true }
+rand_core = { version = "0.6", default-features = false, optional = true }

@@ -1,0 +1,19 @@
+[package]
+name = "touchos-srv-boiler"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+description = "The Toon's boiler link (UART2, towards the Ketelmodule): read-only, records what arrives"
+
+[[bin]]
+name = "boiler"
+path = "src/main.rs"
+test = false
+bench = false
+
+[dependencies]
+touchos-rt = { path = "../../libs/rt" }
+touchos-drv = { path = "../../libs/drv" }
+touchos-opentherm = { path = "../../libs/opentherm" }
+log.workspace = true

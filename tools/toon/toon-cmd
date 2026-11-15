@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Send one line to the Toon's console (through toonconsole.py) and print what
+# comes back until a prompt appears, or until the timeout.
+#
+#   toon-cmd [-t SECONDS] [-p PROMPT_REGEX] 'printenv'
+#
+# The default prompt matches U-Boot's "U-Boot> " and a shell's "# ".
+set -u
+here=$(dirname "$(readlink -f "$0")")
+log=${TOON_LOG:-$HOME/toon-backup/serial.log}
+timeout=20
+prompt='(> |# ) \[no newline\]$'
+while getopts t:p: o; do
+  case $o in
+    t) timeout=$OPTARG ;;
+    p) prompt=$OPTARG ;;
+    *) exit 2 ;;
+  esac
+done
+shift $((OPTIND - 1))
+
+start=$(stat -c %s "$log")
+printf '%s\n' "$*" > "$here/console.in"
+deadline=$((SECONDS + timeout))
+while ((SECONDS < deadline)); do
+  sleep 0.3
+  if tail -c +$((start + 1)) "$log" | grep -v '^[0-9:]* >>> ' | grep -qE "$prompt"; then
+    break
+  fi
+done
+tail -c +$((start + 1)) "$log" | grep -v '^[0-9:]* >>> '
+((SECONDS < deadline)) || { echo "toon-cmd: no prompt within ${timeout}s" >&2; exit 1; }

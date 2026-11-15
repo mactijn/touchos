@@ -1,0 +1,20 @@
+[package]
+name = "touchos-drv"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+description = "Support for device drivers in user space: DMA memory, MMIO, the network link"
+
+[lib]
+# Host tests: the register window (src/mmio.rs) over plain memory.
+test = true
+bench = false
+
+# Everything but `mmio` is for touchos only; host tests build without it.
+[target.'cfg(target_os = "none")'.dependencies]
+touchos-rt = { path = "../rt" }
+touchos-abi = { path = "../abi" }
+touchos-proto = { path = "../proto" }
+log.workspace = true
+spin.workspace = true

@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# Run OpenOCD commands against the Toon, then always resume the CPU.
+#
+#   toon-ocd 'halt; reg pc; mdw 0xa1400000 4'
+#   toon-ocd -k 'reset halt'     # -k: keep the CPU halted afterwards
+#
+# Commands are separated by ';'. Each one's result is printed (OpenOCD 0.12
+# returns rather than prints results of commands called from Tcl). The first
+# failing command stops the list, and a halted CPU is still resumed at the
+# end unless -k is given: plain `openocd -c ...` would exit with it halted.
+# The output appears when OpenOCD is done (it is filtered as a whole).
+set -u
+here=$(dirname "$(readlink -f "$0")")
+keep=0
+if [[ ${1:-} == -k ]]; then keep=1; shift; fi
+export TOON_OCD_CMDS="$*"
+
+# Pull-ups on SRST (GPIO 24) and TRST (GPIO 8): see pi4-jtag.cfg.
+pinctrl set 24 pu
+pinctrl set 8 pu
+
+run='if {[catch {
+  foreach c [split $::env(TOON_OCD_CMDS) ";"] {
+    set c [string trim $c]
+    if {$c eq ""} continue
+    echo "> $c"
+    set r [eval $c]
+    if {$r ne ""} { echo $r }
+  }
+} err]} { echo "toon-ocd: ERROR: $err" }'
+
+finish='if {[imx27.cpu curstate] eq "halted"} { resume; echo "toon-ocd: resumed" }'
+((keep)) && finish='echo "toon-ocd: state [imx27.cpu curstate] (kept)"'
+
+# Exit status: 1 if OpenOCD failed (or timed out) or a command failed, so
+# callers (cargo xtask load) notice a load that didn't happen.
+out=$(timeout "${TOON_OCD_TIMEOUT:-60}" openocd -f "$here/pi4-jtag.cfg" -f "$here/ed20.cfg" \
+  -c init -c "$run" -c "$finish" -c shutdown 2>&1)
+rc=$?
+printf '%s\n' "$out" |
+  grep -vE '^(Licensed|For bug|\s+http|Open On|adapter speed|ed20_(full_)?init$|shutdown command|Info : (BCM|clock|JTAG tap|Embedded|imx27.cpu: hard|ETM|\[imx27.cpu\] (Exam|starting)|Listening))' || true
+# (An error inside an event handler, such as ed20_init in reset init, is
+# only printed by OpenOCD: look for that too.)
+[[ $rc -eq 0 && $out != *"toon-ocd: ERROR"* && $out != *"Error executing event"* ]] || exit 1

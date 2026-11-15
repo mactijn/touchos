@@ -1,0 +1,98 @@
+<header class="page-head">
+  <mat-icon svgIcon="monitor_heart" />
+  <div>
+    <h1>System</h1>
+    <p>How the panel is doing.</p>
+  </div>
+</header>
+
+@if (panel.restarting()) {
+  <mat-card appearance="outlined" class="restarting">
+    <mat-card-content>
+      <p>The panel is restarting…</p>
+      <mat-progress-bar mode="indeterminate" />
+    </mat-card-content>
+  </mat-card>
+}
+
+@if (facts().length) {
+  <div class="facts">
+    @for (f of facts(); track f.label) {
+      <div class="fact" [class.bad]="!f.ok">
+        <mat-icon [svgIcon]="f.icon" />
+        <div>
+          <div class="label">{{ f.label }}</div>
+          <div class="value">{{ f.value }}</div>
+        </div>
+      </div>
+    }
+  </div>
+  @if (panel.status()?.config?.problems?.length) {
+    <mat-card appearance="outlined" class="problems">
+      <mat-card-content>
+        <strong>Problems in touchos.toml</strong>
+        <ul>
+          @for (p of panel.status()!.config.problems; track $index) {
+            <li>{{ p }}</li>
+          }
+        </ul>
+      </mat-card-content>
+    </mat-card>
+  }
+} @else if (panel.offline()) {
+  <p class="dim">The panel is not reachable.</p>
+} @else {
+  <mat-progress-bar mode="indeterminate" />
+}
+
+<mat-card appearance="outlined" class="log-card">
+  <div class="log-bar">
+    <h2>Log</h2>
+    <span class="spacer"></span>
+    <mat-slide-toggle [ngModel]="follow()" (ngModelChange)="follow.set($event)"
+      >Follow</mat-slide-toggle
+    >
+    <mat-form-field appearance="outline" subscriptSizing="dynamic" class="lines">
+      <mat-select
+        [ngModel]="lines()"
+        (ngModelChange)="lines.set($event); loadLog()"
+        aria-label="Lines"
+      >
+        <mat-option [value]="100">100 lines</mat-option>
+        <mat-option [value]="300">300 lines</mat-option>
+        <mat-option [value]="1000">1000 lines</mat-option>
+        <mat-option [value]="2000">2000 lines</mat-option>
+      </mat-select>
+    </mat-form-field>
+    <button
+      matIconButton
+      (click)="loadLog()"
+      [disabled]="loading()"
+      aria-label="Refresh"
+      matTooltip="Refresh"
+    >
+      <mat-icon svgIcon="refresh" />
+    </button>
+  </div>
+  <div class="log" #logBox>
+    @for (l of log(); track $index) {
+      <div class="line" [attr.data-level]="l.level">
+        <span class="t">{{ l.time }}</span><span class="lv">{{ l.level }}</span
+        ><span class="x">{{ l.text }}</span>
+      </div>
+    }
+  </div>
+</mat-card>
+
+<mat-card appearance="outlined">
+  <mat-card-header>
+    <mat-card-title>Restart</mat-card-title>
+    <mat-card-subtitle>The panel starts its active copy of the system again.</mat-card-subtitle>
+  </mat-card-header>
+  <mat-card-actions align="end">
+    <button matButton="outlined" class="danger" (click)="restart()" [disabled]="panel.restarting()">
+      <mat-icon svgIcon="restart_alt" />
+      Restart the panel
+    </button>
+  </mat-card-actions>
+</mat-card>

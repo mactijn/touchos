@@ -1,0 +1,48 @@
+# touchos configuration. Copy to config/touchos.toml and fill in.
+# `cargo xtask flash --config` writes it into the Toon's NAND; after that the
+# settings page changes it there (keeping these comments).
+
+[homeassistant]
+# Use the IP address: the OS does not do mDNS (.local names).
+host = "192.168.1.10"
+port = 8123
+# Profile -> Security -> Long-lived access tokens
+token = "PASTE-TOKEN-HERE"
+# tls = true             # wss://; the default is TLS only on port 443
+
+[wifi]
+# WPA2-PSK with AES only. Leave this section out to use the Ethernet port.
+# ssid = "MyNetwork"
+# psk = "my wifi password"
+
+[debug]
+# Optional: send the kernel log as UDP lines to your PC (`cargo xtask log` receives them).
+# log_host = "192.168.1.20:5555"
+# Development: also log pairing codes, so `cargo xtask pair` works without the screen.
+# log_pin = true
+
+[display]
+# Backlight in percent: while in use, and after `dim_after_seconds` without touches.
+brightness = 80
+dim_brightness = 15
+dim_after_seconds = 60
+# Optional: switch the screen off when idle during these hours (touch wakes it).
+# night = "23:00-07:00"
+# Time zone: UTC offset in minutes, plus EU summer time ("eu") or none.
+utc_offset_minutes = 60
+dst = "eu"
+
+[dashboard]
+# Which kinds of entities get tiles (when no [[tile]] list is given).
+types = ["light", "switch", "climate", "cover", "fan", "lock", "media_player", "sensor"]
+# Optional: which rooms (Home Assistant areas) to show, in this order. "Other" = no area.
+# rooms = ["Living room", "Kitchen", "Bedroom", "Other"]
+
+# Dashboard tiles, in order.
+[[tile]]
+entity = "light.living_room"
+name = "Living room"
+
+[[tile]]
+entity = "sensor.outside_temperature"
+name = "Outside"

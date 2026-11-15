@@ -1,0 +1,13 @@
+[package]
+name = "touchos-storage"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+description = "The storage server's rules: the storage mode, and which client may read which file"
+
+[lib]
+bench = false
+
+[dependencies]
+touchos-proto = { path = "../proto" }

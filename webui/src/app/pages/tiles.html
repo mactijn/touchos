@@ -1,0 +1,75 @@
+<header class="page-head">
+  <mat-icon svgIcon="grid_view" />
+  <div>
+    <h1>Tiles</h1>
+    <p>The Home Assistant entities on the panel, in this order. Drag to reorder.</p>
+  </div>
+</header>
+
+@let rows = form.tileRows();
+@if (rows.length) {
+  <mat-card appearance="outlined" [class.changed]="form.tilesChanged()">
+    <div class="list" cdkDropList (cdkDropListDropped)="drop($event)">
+      @for (r of rows; track r; let i = $index) {
+        <div class="row" cdkDrag cdkDragLockAxis="y" [formGroup]="r">
+          <mat-icon
+            svgIcon="drag_indicator"
+            cdkDragHandle
+            class="handle"
+            matTooltip="Drag to reorder"
+          />
+          <span class="num">{{ i + 1 }}</span>
+          <mat-form-field appearance="outline" subscriptSizing="dynamic" class="entity">
+            <mat-label>Entity</mat-label>
+            <input
+              matInput
+              [id]="'tile-' + i"
+              formControlName="entity"
+              [matAutocomplete]="auto"
+              placeholder="light.kitchen"
+              spellcheck="false"
+            />
+            <mat-autocomplete #auto="matAutocomplete">
+              @for (e of suggestions(r.controls.entity.value); track e[0]) {
+                <mat-option [value]="e[0]">
+                  <span class="opt-name">{{ e[1] }}</span>
+                  <span class="opt-id">{{ e[0] }}</span>
+                </mat-option>
+              }
+            </mat-autocomplete>
+          </mat-form-field>
+          <mat-form-field appearance="outline" subscriptSizing="dynamic" class="name">
+            <mat-label>Name</mat-label>
+            <input
+              matInput
+              formControlName="name"
+              [placeholder]="names().get(r.controls.entity.value) ?? 'From Home Assistant'"
+            />
+          </mat-form-field>
+          <button
+            matIconButton
+            (click)="form.removeTile(i)"
+            aria-label="Remove"
+            matTooltip="Remove"
+          >
+            <mat-icon svgIcon="delete" />
+          </button>
+          <div *cdkDragPlaceholder class="placeholder"></div>
+        </div>
+      }
+    </div>
+  </mat-card>
+} @else {
+  <mat-card appearance="outlined" class="empty" [class.changed]="form.tilesChanged()">
+    <mat-card-content>
+      <mat-icon svgIcon="space_dashboard" />
+      <h2>Automatic tiles</h2>
+      <p>No tiles are listed, so the panel picks them by entity type (see Dashboard).</p>
+    </mat-card-content>
+  </mat-card>
+}
+
+<button matButton="tonal" class="add" (click)="add()">
+  <mat-icon svgIcon="add" />
+  Add tile
+</button>

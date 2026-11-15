@@ -1,0 +1,13 @@
+[package]
+name = "touchos-http"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+description = "A small HTTP/1.1 request parser and response builder (no_std)"
+
+[lib]
+bench = false
+
+[dependencies]
+httparse = { version = "1", default-features = false }

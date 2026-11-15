@@ -1,0 +1,24 @@
+[package]
+name = "touchos-wlan"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+description = "Wi-Fi station shared by the chip drivers: 802.11 frames, WPA2-PSK, CCMP, scan results and the station flow behind a Radio trait"
+
+[lib]
+test = true
+bench = false
+
+[dependencies]
+log.workspace = true
+sha1 = { version = "0.10", default-features = false }
+hmac = { version = "0.12", default-features = false }
+pbkdf2 = { version = "0.12", default-features = false, features = ["hmac"] }
+aes = { version = "0.8", default-features = false }
+
+# The station flow needs the runtime (timers, randomness) and the network
+# link; the frame and crypto code doesn't, so it can be tested on the host.
+[target.'cfg(target_os = "none")'.dependencies]
+touchos-rt = { path = "../rt" }
+touchos-drv = { path = "../drv" }

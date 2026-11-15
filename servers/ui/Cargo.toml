@@ -1,0 +1,26 @@
+[package]
+name = "touchos-srv-ui"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+description = "The dashboard: draws Home Assistant tiles on the panel and handles touch"
+
+[[bin]]
+name = "ui"
+path = "src/main.rs"
+test = false
+bench = false
+
+[dependencies]
+touchos-rt = { path = "../../libs/rt" }
+touchos-abi = { path = "../../libs/abi" }
+touchos-config = { path = "../../libs/config" }
+touchos-proto = { path = "../../libs/proto" }
+touchos-civil = { path = "../../libs/civil" }
+touchos-drv = { path = "../../libs/drv" }
+log.workspace = true
+spin.workspace = true
+
+[build-dependencies]
+fontdue = "0.9"

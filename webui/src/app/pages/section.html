@@ -1,0 +1,53 @@
+@if (config.loadError(); as err) {
+  <mat-card appearance="outlined" class="problem">
+    <mat-card-content>
+      <mat-icon svgIcon="error" />
+      <span>{{ err }}</span>
+      <button matButton (click)="config.load()">Try again</button>
+    </mat-card-content>
+  </mat-card>
+}
+
+@if (current(); as s) {
+  <header class="page-head">
+    <mat-icon [svgIcon]="s.icon" />
+    <div>
+      <h1>{{ s.title }}</h1>
+      <p>
+        {{ s.fields.length }} {{ s.fields.length === 1 ? 'setting' : 'settings' }}. An empty field
+        uses the default.
+      </p>
+    </div>
+  </header>
+
+  @if (config.current()?.problems?.length) {
+    <mat-card appearance="outlined" class="problem">
+      <mat-card-content>
+        <mat-icon svgIcon="warning" />
+        <div>
+          <strong>Problems in touchos.toml</strong>
+          <ul>
+            @for (p of config.current()!.problems; track $index) {
+              <li>{{ p }}</li>
+            }
+          </ul>
+        </div>
+      </mat-card-content>
+    </mat-card>
+  }
+
+  <mat-card appearance="outlined">
+    <mat-card-content class="fields">
+      @for (f of s.fields; track f.id) {
+        <app-setting-field
+          [field]="f"
+          [control]="form.control(f.id)"
+          [stored]="config.current()?.values?.[f.id]"
+          [changed]="form.changedIds().has(f.id)"
+        />
+      }
+    </mat-card-content>
+  </mat-card>
+} @else if (!config.loadError()) {
+  <mat-progress-bar mode="indeterminate" />
+}

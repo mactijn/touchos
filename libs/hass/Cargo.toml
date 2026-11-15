@@ -1,0 +1,14 @@
+[package]
+name = "touchos-hass"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+description = "The Home Assistant WebSocket API as the HA client uses it: the requests it sends and what the answers and events do to the entity store"
+
+[lib]
+bench = false
+
+[dependencies]
+touchos-proto = { path = "../proto" }
+serde_json.workspace = true

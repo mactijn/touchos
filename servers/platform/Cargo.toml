@@ -1,0 +1,21 @@
+[package]
+name = "touchos-srv-platform"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+description = "Platform drivers: I2C controllers, the touchscreen and the accelerometer"
+
+[[bin]]
+name = "platform"
+path = "src/main.rs"
+test = false
+bench = false
+
+[dependencies]
+touchos-rt = { path = "../../libs/rt" }
+touchos-proto = { path = "../../libs/proto" }
+touchos-civil = { path = "../../libs/civil" }
+touchos-drv = { path = "../../libs/drv" }
+log.workspace = true
+

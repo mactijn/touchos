@@ -1,0 +1,15 @@
+[package]
+name = "touchos-proto"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+description = "Data shared between touchos processes: messages, shared-memory rings and boards"
+
+[lib]
+bench = false
+
+[dependencies]
+touchos-civil = { path = "../civil" }
+serde = { version = "1", default-features = false, features = ["derive", "alloc"] }
+postcard = { version = "1", default-features = false, features = ["alloc"] }

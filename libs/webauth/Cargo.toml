@@ -1,0 +1,10 @@
+[package]
+name = "touchos-webauth"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+description = "Pairing PINs, sessions and rate limits for the panel's web interface"
+
+[lib]
+bench = false

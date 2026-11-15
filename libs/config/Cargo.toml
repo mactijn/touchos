@@ -1,0 +1,18 @@
+[package]
+name = "touchos-config"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+description = "touchos.toml: TOML-subset parser, format-preserving writer, schema and typed config"
+
+[lib]
+test = true
+bench = false
+
+# The client (src/client.rs) talks to the server through the runtime;
+# host tests build without it.
+[target.'cfg(target_os = "none")'.dependencies]
+touchos-rt = { path = "../rt" }
+touchos-abi = { path = "../abi" }
+log.workspace = true

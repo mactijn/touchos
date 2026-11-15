@@ -1,0 +1,33 @@
+[workspace]
+resolver = "3"
+members = ["kernel", "xtask", "libs/*", "servers/*"]
+# `cargo build` at the root builds only host tools; the kernel is built by
+# `cargo xtask build` for the bare-metal target.
+default-members = ["xtask"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+publish = false
+license = "MIT"
+
+# Dependencies used by more than one crate: one version for all.
+[workspace.dependencies]
+log = { version = "0.4", default-features = false }
+spin = "0.10"
+serde_json = { version = "1", default-features = false, features = ["alloc"] }
+sha2 = { version = "0.10.9", default-features = false }
+linked_list_allocator = "0.10.6"
+
+[profile.dev]
+panic = "abort"
+opt-level = 1        # unoptimised Rust is painfully slow for pixel pushing
+
+# Crypto (TLS, WPA2), JSON and the TCP/IP stack are much faster optimized,
+# while our own code stays easy to debug.
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.release]
+panic = "abort"
+debug = true         # keep symbols in the ELF for panic backtraces later

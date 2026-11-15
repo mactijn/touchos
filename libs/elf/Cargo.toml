@@ -1,0 +1,10 @@
+[package]
+name = "touchos-elf"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+description = "Static executables as the kernel loads them: the ELF header and the loadable segments, checked"
+
+[lib]
+bench = false

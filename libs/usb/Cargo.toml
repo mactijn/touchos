@@ -1,0 +1,17 @@
+[package]
+name = "touchos-usb"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+description = "USB host support: descriptors, enumeration and the host-controller interface, and the ChipIdea EHCI driver"
+
+[lib]
+bench = false
+
+# The controllers and enumeration need the runtime (DMA memory, the
+# clock) and log; the descriptor parser doesn't, so it is tested on the host.
+[target.'cfg(target_os = "none")'.dependencies]
+log.workspace = true
+touchos-rt = { path = "../rt" }
+touchos-drv = { path = "../drv" }

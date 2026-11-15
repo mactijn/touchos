@@ -1,0 +1,105 @@
+<header class="page-head">
+  <mat-icon svgIcon="system_update_alt" />
+  <div>
+    <h1>Software</h1>
+    <p>The panel keeps two copies of touchos. An update replaces the one that isn't running.</p>
+  </div>
+</header>
+
+@if (state(); as s) {
+  @if (s.enabled) {
+    <div class="copies">
+      @for (c of copies(); track c.name) {
+        <mat-card appearance="outlined" [class.running]="c.running">
+          <mat-card-content>
+            <div class="copy-head">
+              <span class="letter">{{ c.name }}</span>
+              @if (c.running) {
+                <span class="pill">Running</span>
+              }
+            </div>
+            <p class="build">{{ c.text }}</p>
+          </mat-card-content>
+        </mat-card>
+      }
+    </div>
+
+    <mat-card appearance="outlined">
+      <mat-card-header>
+        <mat-card-title>Install an update</mat-card-title>
+        <mat-card-subtitle>A file made with <code>cargo xtask bundle</code></mat-card-subtitle>
+      </mat-card-header>
+      <mat-card-content>
+        <input #picker type="file" accept=".update" hidden (change)="pick($event)" />
+        @if (file(); as f) {
+          <div class="file">
+            <mat-icon svgIcon="deployed_code" />
+            <div>
+              <div class="file-name">{{ f.name }}</div>
+              <div class="file-size">{{ size(f.size) }}</div>
+            </div>
+          </div>
+        }
+
+        @switch (step().kind) {
+          @case ('uploading') {
+            @let u = $any(step());
+            <p class="status">Uploading… {{ percent(u.done, u.total) | number: '1.0-0' }}%</p>
+            <mat-progress-bar mode="determinate" [value]="percent(u.done, u.total)" />
+          }
+          @case ('checking') {
+            <p class="status">Checking the signature and every file…</p>
+            <mat-progress-bar mode="indeterminate" />
+          }
+          @case ('writing') {
+            @let w = $any(step());
+            <p class="status">
+              Writing to the other copy{{
+                w.file ? ': ' + w.file + ' (' + (w.done + 1) + ' of ' + w.total + ')' : ''
+              }}…
+            </p>
+            <mat-progress-bar mode="determinate" [value]="percent(w.done, w.total)" />
+          }
+          @case ('restarting') {
+            <p class="status">
+              Installed build {{ $any(step()).build }}. The panel is restarting into it…
+            </p>
+            <mat-progress-bar mode="indeterminate" />
+          }
+          @case ('done') {
+            @let d = $any(step());
+            <p class="result" [class.bad]="!d.good">
+              <mat-icon [svgIcon]="d.good ? 'check_circle' : 'error'" />{{ d.text }}
+            </p>
+          }
+        }
+        <p class="how">
+          It goes into the copy that isn't running; the panel then restarts into it once. If it runs
+          a minute without problems it stays, otherwise the next restart goes back to the current
+          copy.
+        </p>
+      </mat-card-content>
+      <mat-card-actions align="end">
+        <button matButton="outlined" (click)="picker.click()" [disabled]="busy()">
+          <mat-icon svgIcon="upload_file" />
+          {{ file() ? 'Other file' : 'Choose file' }}
+        </button>
+        <button matButton="filled" (click)="install()" [disabled]="busy() || !file()">
+          Install
+        </button>
+      </mat-card-actions>
+    </mat-card>
+  } @else {
+    <mat-card appearance="outlined">
+      <mat-card-content class="unavailable">
+        <mat-icon svgIcon="info" />
+        <p>
+          Updates aren't available here: the panel didn't start from copy A or B in its NAND, or
+          this build has no update key.
+        </p>
+      </mat-card-content>
+    </mat-card>
+  }
+} @else {
+  <mat-progress-bar mode="indeterminate" />
+}

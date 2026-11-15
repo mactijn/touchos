@@ -1,0 +1,18 @@
+[package]
+name = "touchos-srv-fec"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+description = "The i.MX FEC Ethernet driver (i.MX25/i.MX27), in user space"
+
+[[bin]]
+name = "fec"
+path = "src/main.rs"
+test = false
+bench = false
+
+[dependencies]
+touchos-rt = { path = "../../libs/rt" }
+touchos-drv = { path = "../../libs/drv" }
+log.workspace = true

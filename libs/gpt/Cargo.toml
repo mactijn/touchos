@@ -1,0 +1,16 @@
+[package]
+name = "touchos-gpt"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+description = "GUID partition table, read only: find a partition by type (the touchos partition) and check the table"
+
+[lib]
+bench = false
+
+[dependencies]
+touchos-blockdev = { path = "../blockdev" }
+
+[dev-dependencies]
+touchos-blockdev = { path = "../blockdev", features = ["testing"] }

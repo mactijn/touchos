@@ -1,0 +1,23 @@
+.fields {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 0;
+}
+
+.problem {
+  margin-bottom: 16px;
+  border-color: var(--mat-sys-error);
+  color: var(--mat-sys-error);
+
+  mat-card-content {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+  }
+
+  ul {
+    margin: 4px 0 0;
+    padding-left: 20px;
+  }
+}

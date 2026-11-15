@@ -1,0 +1,23 @@
+[package]
+name = "touchos-srv-storage"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+description = "The Toon's NAND: the settings and the two system copies"
+
+[[bin]]
+name = "storage"
+path = "src/main.rs"
+test = false
+bench = false
+
+[dependencies]
+touchos-rt = { path = "../../libs/rt" }
+touchos-abi = { path = "../../libs/abi" }
+touchos-proto = { path = "../../libs/proto" }
+touchos-drv = { path = "../../libs/drv" }
+touchos-storage = { path = "../../libs/storage" }
+log.workspace = true
+spin.workspace = true
+touchos-nand = { path = "../../libs/nand" }

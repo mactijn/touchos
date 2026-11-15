@@ -1,0 +1,36 @@
+[package]
+name = "touchos-kernel"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+description = "The touchos microkernel for the i.MX boards: memory, scheduling, IPC, capabilities"
+
+[[bin]]
+name = "touchos"
+path = "src/main.rs"
+test = false
+bench = false
+
+# The board (exactly one; build.rs checks).
+[features]
+board-imx25 = []   # QEMU -M imx25-pdk
+board-toon = []    # Eneco Toon v1 (i.MX27)
+
+[dependencies]
+log.workspace = true
+spin.workspace = true
+linked_list_allocator.workspace = true
+noto-sans-mono-bitmap = { version = "0.4", default-features = false, features = ["regular", "size_16", "size_24", "unicode-basic-latin"] }
+
+touchos-abi = { path = "../libs/abi" }
+touchos-elf = { path = "../libs/elf" }
+touchos-tar = { path = "../libs/tar" }
+# ARMv5 has no atomic instructions: the libcalls, with IRQs masked.
+touchos-atomics = { path = "../libs/atomics", features = ["kernel"] }
+# The entropy pool.
+sha2.workspace = true
+
+# build.rs writes the board's linker numbers from touchos_abi::imx_boot.
+[build-dependencies]
+touchos-abi = { path = "../libs/abi" }

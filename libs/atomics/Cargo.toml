@@ -1,0 +1,17 @@
+[package]
+name = "touchos-atomics"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+description = "Atomic libcalls (__sync_*, __atomic_*_8) for ARMv5TE, which has no LDREX/STREX"
+
+[lib]
+bench = false
+
+[features]
+# Exactly one backend is used on ARM; neither does anything on other targets.
+# kernel: compare-and-swap with IRQs (and FIQs) masked.
+# user:   compare-and-swap through the kernel's restartable helpers.
+kernel = []
+user = []

@@ -1,0 +1,13 @@
+[package]
+name = "touchos-blockdev"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+description = "Block device trait, partition windows, and test tools (memory disk, crash injection, write audit)"
+
+[lib]
+bench = false
+
+[features]
+testing = []

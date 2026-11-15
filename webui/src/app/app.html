@@ -1,0 +1,115 @@
+@if (session.paired()) {
+  <mat-sidenav-container class="frame">
+    <mat-sidenav #nav [mode]="wide() ? 'side' : 'over'" [opened]="wide()" class="nav">
+      <div class="brand">
+        <span class="mark"></span>
+        touchos
+      </div>
+      <mat-nav-list>
+        <div mat-subheader>Settings</div>
+        @for (s of form.sections(); track s.id) {
+          @let st = form.sectionState()[s.id];
+          <a
+            mat-list-item
+            [routerLink]="['/settings', s.id]"
+            routerLinkActive
+            #rla="routerLinkActive"
+            [activated]="rla.isActive"
+            (click)="navigated()"
+          >
+            <mat-icon matListItemIcon [svgIcon]="s.icon" />
+            <span matListItemTitle>{{ s.title }}</span>
+            @if (st?.invalid) {
+              <mat-icon matListItemMeta svgIcon="error" class="meta-bad" aria-label="has errors" />
+            } @else if (st?.changed) {
+              <span matListItemMeta class="dot" aria-label="changed"></span>
+            }
+          </a>
+        }
+        <mat-divider />
+        @for (p of pages; track p.path) {
+          <a
+            mat-list-item
+            [routerLink]="p.path"
+            routerLinkActive
+            #rla="routerLinkActive"
+            [activated]="rla.isActive"
+            (click)="navigated()"
+          >
+            <mat-icon matListItemIcon [svgIcon]="p.icon" />
+            <span matListItemTitle>{{ p.label }}</span>
+            @if (p.path === '/tiles' && form.tilesChanged()) {
+              <span matListItemMeta class="dot" aria-label="changed"></span>
+            }
+          </a>
+        }
+      </mat-nav-list>
+    </mat-sidenav>
+
+    <mat-sidenav-content class="content">
+      <mat-toolbar class="top">
+        @if (!wide()) {
+          <button matIconButton (click)="nav.toggle()" aria-label="Menu">
+            <mat-icon svgIcon="menu" />
+          </button>
+          <span class="brand-small">touchos</span>
+        }
+        <span class="spacer"></span>
+        @if (panel.restarting()) {
+          <span class="chip">
+            <mat-icon svgIcon="restart_alt" />
+            Restarting…
+          </span>
+        } @else if (panel.offline()) {
+          <span class="chip bad">
+            <mat-icon svgIcon="wifi_off" />
+            Not reachable
+          </span>
+        } @else if (panel.status(); as s) {
+          <span
+            class="chip"
+            [class.bad]="!haOk()"
+            [matTooltip]="haOk() ? s.ha.entities + ' entities' : 'Home Assistant is not connected'"
+          >
+            <mat-icon [svgIcon]="haOk() ? 'cloud_done' : 'cloud_off'" />
+            <span class="wide-only">Home Assistant</span>
+          </span>
+          @if (s.slot) {
+            <span class="chip wide-only" matTooltip="The running copy of touchos">
+              <mat-icon svgIcon="deployed_code" />
+              {{ s.slot }} · {{ s.build }}
+            </span>
+          }
+          <span class="chip wide-only">
+            <mat-icon svgIcon="lan" />
+            {{ s.ip ?? 'no network' }}
+          </span>
+        }
+        <button matIconButton (click)="signOut()" aria-label="Sign out" matTooltip="Sign out">
+          <mat-icon svgIcon="logout" />
+        </button>
+      </mat-toolbar>
+
+      <main>
+        <router-outlet />
+      </main>
+
+      @if (form.count() > 0 || form.saving()) {
+        <div class="save-bar" role="region" aria-label="Unsaved changes">
+          <div class="save-inner">
+            @if (form.saving()) {
+              <mat-progress-bar mode="indeterminate" class="save-progress" />
+            }
+            <span class="what">
+              {{ form.count() }} unsaved {{ form.count() === 1 ? 'change' : 'changes' }}
+            </span>
+            <button matButton (click)="form.discard()" [disabled]="form.saving()">Discard</button>
+            <button matButton="filled" (click)="save()" [disabled]="form.saving()">Save</button>
+          </div>
+        </div>
+      }
+    </mat-sidenav-content>
+  </mat-sidenav-container>
+} @else {
+  <router-outlet />
+}

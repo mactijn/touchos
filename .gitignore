@@ -1,0 +1,11 @@
+/target
+/build
+# contains the Home Assistant access token
+/config/touchos.toml
+/config/qemu.local.toml
+/survey
+
+# Claude Code
+/.claude
+# your own update key (cargo xtask keygen)
+/config/update-key.pub

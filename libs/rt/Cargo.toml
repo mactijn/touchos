@@ -1,0 +1,22 @@
+[package]
+name = "touchos-rt"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+description = "touchos userland runtime: process entry, syscalls, heap, logging, panic handler"
+
+[lib]
+test = false
+bench = false
+
+[dependencies]
+touchos-abi = { path = "../abi" }
+log.workspace = true
+linked_list_allocator.workspace = true
+touchos-proto = { path = "../proto" }
+
+# ARMv5 has no atomic instructions: the libcalls, through the kernel's
+# restartable helpers.
+[target.'cfg(target_arch = "arm")'.dependencies]
+touchos-atomics = { path = "../atomics", features = ["user"] }

@@ -1,0 +1,79 @@
+.wrap {
+  max-width: 440px;
+  margin: 8vh auto 0;
+}
+
+mat-card-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 32px 24px 24px;
+}
+
+.badge {
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  display: grid;
+  place-items: center;
+  background: var(--mat-sys-primary-container);
+  color: var(--mat-sys-on-primary-container);
+  margin-bottom: 16px;
+}
+
+h1 {
+  font: var(--mat-sys-headline-small);
+  margin: 0 0 8px;
+}
+
+.lead {
+  color: var(--mat-sys-on-surface-variant);
+  margin: 0 0 24px;
+}
+
+form {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 16px;
+  width: 100%;
+}
+
+.pin {
+  font-size: 32px;
+  letter-spacing: 12px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+mat-progress-bar {
+  border-radius: 4px;
+}
+
+.note {
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.error {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  color: var(--mat-sys-error);
+  margin: 16px 0 0;
+}
+
+.http {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-small);
+  padding: 0 16px;
+
+  mat-icon {
+    width: 18px;
+    height: 18px;
+    flex: none;
+  }
+}

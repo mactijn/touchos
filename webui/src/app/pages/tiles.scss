@@ -1,0 +1,104 @@
+mat-card.changed {
+  border-color: var(--mat-sys-primary);
+}
+
+.list {
+  padding: 8px 0;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 24px 24px minmax(0, 1fr) minmax(0, 1fr) 40px;
+  gap: 8px 12px;
+  align-items: center;
+  padding: 8px 12px 8px 8px;
+  background: var(--mat-sys-surface);
+}
+
+.handle {
+  cursor: grab;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.num {
+  color: var(--mat-sys-on-surface-variant);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.placeholder {
+  height: 56px;
+  margin: 8px 12px;
+  border: 2px dashed var(--mat-sys-outline-variant);
+  border-radius: 8px;
+}
+
+.cdk-drag-preview {
+  box-shadow: var(--mat-sys-level3);
+  border-radius: 8px;
+}
+
+.cdk-drag-animating,
+.list.cdk-drop-list-dragging .row:not(.cdk-drag-placeholder) {
+  transition: transform 200ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+.opt-name {
+  display: block;
+}
+
+.opt-id {
+  display: block;
+  font: var(--mat-sys-body-small);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.empty mat-card-content {
+  text-align: center;
+  padding: 32px 16px;
+
+  mat-icon {
+    width: 40px;
+    height: 40px;
+    color: var(--mat-sys-on-surface-variant);
+  }
+
+  h2 {
+    font: var(--mat-sys-title-medium);
+    margin: 8px 0 4px;
+  }
+
+  p {
+    margin: 0;
+    color: var(--mat-sys-on-surface-variant);
+  }
+}
+
+.add {
+  margin-top: 16px;
+}
+
+// Phones: name under the entity.
+@media (max-width: 600px) {
+  .row {
+    grid-template-columns: 24px minmax(0, 1fr) 40px;
+  }
+
+  .num {
+    display: none;
+  }
+
+  .entity {
+    grid-column: 2;
+  }
+
+  .name {
+    grid-column: 2;
+    grid-row: 2;
+  }
+
+  .row > button {
+    grid-column: 3;
+    grid-row: 1;
+  }
+}

@@ -1,0 +1,10 @@
+[package]
+name = "touchos-nand"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+description = "The i.MX27's NAND flash controller (NFC v1) and the Toon's NAND layout: bad blocks, the boot image U-Boot loads, the A/B system copies"
+
+[lib]
+bench = false

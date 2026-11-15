@@ -1,0 +1,15 @@
+[package]
+name = "xtask"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+description = "Build tooling: cargo xtask build, qemu, flash, bundle, check, selftest"
+
+[dependencies]
+anyhow = "1"
+touchos-update = { path = "../libs/update" }
+touchos-tar = { path = "../libs/tar" }
+touchos-abi = { path = "../libs/abi" }
+touchos-nand = { path = "../libs/nand" }
+touchos-config = { path = "../libs/config" }

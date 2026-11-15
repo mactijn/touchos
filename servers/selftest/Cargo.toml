@@ -1,0 +1,19 @@
+[package]
+name = "touchos-srv-selftest"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+description = "On-target tests of the kernel and the services, run by init with `selftest`"
+
+[[bin]]
+name = "selftest"
+path = "src/main.rs"
+test = false
+bench = false
+
+[dependencies]
+touchos-rt = { path = "../../libs/rt" }
+touchos-abi = { path = "../../libs/abi" }
+log.workspace = true
+touchos-config = { path = "../../libs/config" }

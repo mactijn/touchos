@@ -1,0 +1,17 @@
+# Configuration used by `cargo xtask qemu` and `selftest` (QEMU imx25-pdk with
+# user-mode networking).
+# In QEMU the host machine is reachable from the guest as 10.0.2.2.
+
+[debug]
+# Send the kernel log as UDP lines here; receive with `cargo xtask log`.
+log_host = "10.0.2.2:5555"
+# Pairing codes go to the log too: `cargo xtask pair` pairs without the screen.
+log_pin = true
+
+[homeassistant]
+host = "10.0.2.2"
+port = 8123
+token = ""
+
+[display]
+rotation = 0

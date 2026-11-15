@@ -1,0 +1,10 @@
+[package]
+name = "touchos-civil"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+description = "Calendar time: UNIX seconds to a local date and time (with EU summer time) and back"
+
+[lib]
+bench = false

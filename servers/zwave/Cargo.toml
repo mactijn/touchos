@@ -1,0 +1,19 @@
+[package]
+name = "touchos-srv-zwave"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+description = "The Toon's Z-Wave controller (UART3, Serial API): asks it what it knows, logs reports"
+
+[[bin]]
+name = "zwave"
+path = "src/main.rs"
+test = false
+bench = false
+
+[dependencies]
+touchos-rt = { path = "../../libs/rt" }
+touchos-drv = { path = "../../libs/drv" }
+touchos-zwave = { path = "../../libs/zwave" }
+log.workspace = true

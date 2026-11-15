@@ -1,0 +1,106 @@
+@let f = field();
+@let c = control();
+@if (segmented()) {
+  <div class="choice">
+    <div class="label">
+      <span [id]="id() + '-label'">{{ f.label }}</span>
+      @if (applyNote(); as note) {
+        <mat-icon svgIcon="sync" class="apply" [matTooltip]="note" [attr.aria-label]="note" />
+      }
+    </div>
+    <mat-button-toggle-group
+      [formControl]="c"
+      [attr.aria-labelledby]="id() + '-label'"
+      hideSingleSelectionIndicator
+    >
+      <mat-button-toggle value="">{{ defaultLabel() }}</mat-button-toggle>
+      @if (f.kind.type === 'bool') {
+        <mat-button-toggle value="true">Yes</mat-button-toggle>
+        <mat-button-toggle value="false">No</mat-button-toggle>
+      } @else {
+        @for (o of options(); track o) {
+          <mat-button-toggle [value]="o">{{ o }}</mat-button-toggle>
+        }
+      }
+    </mat-button-toggle-group>
+    <p class="hint">{{ f.help }}</p>
+  </div>
+} @else {
+  <mat-form-field appearance="outline" subscriptSizing="dynamic">
+    <mat-label>{{ f.label }}</mat-label>
+    @switch (f.kind.type) {
+      @case ('enum') {
+        <mat-select [id]="id()" [formControl]="c">
+          <mat-option value="">{{ defaultLabel() }}</mat-option>
+          @for (o of options(); track o) {
+            <mat-option [value]="o">{{ o }}</mat-option>
+          }
+        </mat-select>
+      }
+      @case ('list') {
+        <mat-chip-grid #grid [attr.aria-label]="f.label">
+          @for (v of items(); track v) {
+            <mat-chip-row (removed)="removeItem(v)">
+              {{ v }}
+              <button matChipRemove [attr.aria-label]="'Remove ' + v">
+                <mat-icon svgIcon="close" />
+              </button>
+            </mat-chip-row>
+          }
+          <input
+            [id]="id()"
+            [placeholder]="items().length ? '' : placeholder()"
+            [matChipInputFor]="grid"
+            [matChipInputSeparatorKeyCodes]="separators"
+            (matChipInputTokenEnd)="addItem($event)"
+          />
+        </mat-chip-grid>
+      }
+      @case ('secret') {
+        <input
+          matInput
+          [id]="id()"
+          type="password"
+          autocomplete="new-password"
+          [formControl]="c"
+          [placeholder]="placeholder()"
+        />
+      }
+      @case ('int') {
+        <input
+          matInput
+          [id]="id()"
+          type="number"
+          inputmode="numeric"
+          [min]="$any(f.kind).min"
+          [max]="$any(f.kind).max"
+          [formControl]="c"
+          [placeholder]="placeholder()"
+        />
+      }
+      @default {
+        <input
+          matInput
+          [id]="id()"
+          [formControl]="c"
+          [placeholder]="placeholder()"
+          spellcheck="false"
+        />
+      }
+    }
+    @if (applyNote(); as note) {
+      <mat-icon
+        matSuffix
+        svgIcon="sync"
+        class="apply"
+        [matTooltip]="note"
+        [attr.aria-label]="note"
+      />
+    }
+    @if (error(); as e) {
+      <mat-error>{{ e }}</mat-error>
+    } @else {
+      <mat-hint>{{ f.help }}</mat-hint>
+    }
+  </mat-form-field>
+}

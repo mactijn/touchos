@@ -1,0 +1,10 @@
+[package]
+name = "touchos-zwave"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+description = "The Z-Wave Serial API (a controller chip on a UART): frames, queries, their answers decoded"
+
+[lib]
+bench = false

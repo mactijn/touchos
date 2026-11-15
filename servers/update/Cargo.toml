@@ -1,0 +1,21 @@
+[package]
+name = "touchos-srv-update"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+description = "Installs signed updates into the copy of the system that isn't running"
+
+[[bin]]
+name = "update"
+path = "src/main.rs"
+test = false
+bench = false
+
+[dependencies]
+touchos-rt = { path = "../../libs/rt" }
+touchos-abi = { path = "../../libs/abi" }
+touchos-proto = { path = "../../libs/proto" }
+touchos-update = { path = "../../libs/update" }
+log.workspace = true
+spin.workspace = true

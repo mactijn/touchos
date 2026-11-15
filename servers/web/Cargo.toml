@@ -1,0 +1,28 @@
+[package]
+name = "touchos-srv-web"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+description = "The panel's settings page (HTTP), protected by pairing with a PIN shown on screen"
+
+[[bin]]
+name = "web"
+path = "src/main.rs"
+test = false
+bench = false
+
+[dependencies]
+touchos-rt = { path = "../../libs/rt" }
+touchos-abi = { path = "../../libs/abi" }
+touchos-proto = { path = "../../libs/proto" }
+touchos-config = { path = "../../libs/config" }
+touchos-netc = { path = "../../libs/netc" }
+touchos-http = { path = "../../libs/http" }
+touchos-webauth = { path = "../../libs/webauth" }
+touchos-update = { path = "../../libs/update" }
+log.workspace = true
+serde_json.workspace = true
+
+[build-dependencies]
+flate2 = "1"

@@ -1,0 +1,26 @@
+[package]
+name = "touchos-srv-wifi"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+description = "The Wi-Fi station: the RT5370 on its EHCI, WPA2-PSK"
+
+[[bin]]
+name = "wifi"
+path = "src/main.rs"
+test = false
+bench = false
+
+[dependencies]
+touchos-rt = { path = "../../libs/rt" }
+touchos-abi = { path = "../../libs/abi" }
+touchos-proto = { path = "../../libs/proto" }
+touchos-drv = { path = "../../libs/drv" }
+touchos-config = { path = "../../libs/config" }
+touchos-wlan = { path = "../../libs/wlan" }
+log.workspace = true
+spin.workspace = true
+# The RT5370 on the board's EHCI (src/rt5370).
+touchos-usb = { path = "../../libs/usb" }
+touchos-rt2800 = { path = "../../libs/rt2800" }

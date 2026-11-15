@@ -1,0 +1,22 @@
+[package]
+name = "touchos-srv-init"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+description = "The first process: starts the others with their capabilities, restarts crashed ones, judges a copy on trial"
+
+[[bin]]
+name = "init"
+path = "src/main.rs"
+test = false
+bench = false
+
+[dependencies]
+touchos-rt = { path = "../../libs/rt" }
+touchos-abi = { path = "../../libs/abi" }
+log.workspace = true
+touchos-config = { path = "../../libs/config" }
+touchos-proto = { path = "../../libs/proto" }
+touchos-update = { path = "../../libs/update" }
+touchos-tar = { path = "../../libs/tar" }
