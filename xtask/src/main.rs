@@ -4,10 +4,12 @@
 //! Where things are: arm.rs (building for a board, QEMU, loading the Toon
 //! over JTAG), nand.rs (the Toon's NAND: flashing, booting from it, update
 //! bundles), initrd.rs (the servers in the initrd), update.rs (the signing
-//! key and signatures), config.rs (which touchos.toml a build carries).
+//! key and signatures), config.rs (which touchos.toml a build carries),
+//! cacerts.rs (the TLS roots, from the distro's CA bundle).
 
 mod arm;
 mod build_id;
+mod cacerts;
 mod check;
 mod commands;
 mod config;
@@ -84,6 +86,10 @@ fn main() -> Result<()> {
             _ => webui::build(true)?,
         },
         Some("keygen") => update::keygen()?,
+        Some("cacerts") => cacerts::run(
+            args.get(1).filter(|a| !a.starts_with("--")).map(String::as_str),
+            flag("--check"),
+        )?,
         _ => unreachable!("commands::check knows every command"),
     }
     Ok(())

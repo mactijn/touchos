@@ -53,6 +53,12 @@ pub const COMMANDS: &[Cmd] = &[
     Cmd { name: "selftest", flags: &[], opts: &["--secs"], help: "selftest [--secs N]\n    boot QEMU imx25 with `selftest`; fails on a FAIL line or a kernel panic" },
     Cmd { name: "log", flags: &[], opts: &[], help: "log [PORT]\n    print the kernel log sent over UDP (debug.log_host; port 5555)" },
     Cmd { name: "pair", flags: &[], opts: &["--port"], help: "pair [URL] [--port N]\n    pair without the screen (PIN from the UDP log; needs debug.log_pin)" },
+    Cmd {
+        name: "cacerts",
+        flags: &["--check"],
+        opts: &[],
+        help: "cacerts [PEM] [--check]\n    libs/certs/cacerts.der, the roots TLS trusts, from a CA bundle (default /etc/ssl/certs/ca-certificates.crt); --check: only compare",
+    },
     Cmd { name: "webui", flags: &[], opts: &[], help: "webui [serve [URL]]\n    build the settings page; serve: develop it at http://localhost:4200, /api forwarded to a panel" },
 ];
 
