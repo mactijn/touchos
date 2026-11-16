@@ -1,0 +1,13 @@
+[package]
+name = "touchos-certs"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+description = "The TLS root certificates (cacerts.der): reading X.509 certificates and finding the root a server's chain ends at"
+
+[lib]
+bench = false
+
+[dependencies]
+touchos-civil = { path = "../civil" }
