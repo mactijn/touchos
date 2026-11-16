@@ -9,7 +9,7 @@ A small operating system, written from scratch in Rust, that turns an **Eneco To
 ## What works on the Toon
 
 - **The dashboard:** your Home Assistant areas as rooms, a tile per entity (lights with dimming, switches, covers, fans, locks, media, scenes, thermostats, sensors), a clock and status line. Touch to toggle, drag to dim, swipe for pages.
-- **Networking:** Wi-Fi (the built-in RT5370, WPA2-PSK) or Ethernet; DHCP, DNS, NTP; TLS 1.3 to Home Assistant with the certificate checked.
+- **Networking:** Wi-Fi (the built-in RT5370, WPA2-PSK) or Ethernet; DHCP, DNS, NTP; TLS 1.2 and 1.3 (rustls) to Home Assistant, with the certificate checked against Mozilla's root store.
 - **A settings page** in the browser (pair with a code shown on the panel): every setting, tile order, the log, restart.
 - **Signed updates** from the settings page into the copy of the system that isn't running, with an automatic return to the old copy if the new one fails.
 - **Robustness:** every driver in its own process, restarted when it crashes; the hardware watchdog restarts a hung system; settings saved crash-safely in NAND.

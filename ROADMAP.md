@@ -85,8 +85,8 @@ The kernel's figures (switches, idle, free memory, the busiest threads) are only
   2. A process overview on the System page: CPU, switches/s, memory and restarts per process ([#21](https://github.com/mactijn/touchos/issues/21)).
 
 ## TLS
-- **Today:** TLS 1.3 (AES-128-GCM) with the certificate checked against Mozilla's root store (`libs/certs/cacerts.der`, shared by init as the "cacerts" capability). The chain itself is checked by embedded-tls, which rejects some valid certificates: more than 7 RDNs in a name (some EV certificates), more than 12 extensions, a host after the first 3 SAN names, and a P-384 key signing with SHA-256 (3 roots).
-- **Steps:** check the chain ourselves, with the DER reader of `libs/certs`, and require `cA` in basicConstraints for every certificate above the leaf ([#32](https://github.com/mactijn/touchos/issues/32)).
+- **Today:** rustls (TLS 1.2 and 1.3) without `std`, through its unbuffered API (`libs/netc/src/tls.rs`), with the RustCrypto provider. rustls-webpki checks certificates against Mozilla's root store (`libs/certs/cacerts.der`, shared by init as the "cacerts" capability).
+- **Open:** `rustls-rustcrypto` is a pre-release (`=0.1.0-pre.0`, pinned). Move to its first stable release.
 
 ## Wi-Fi follow-ups
 The RT5370 runs as a WPA2 station; these are the loose ends.
