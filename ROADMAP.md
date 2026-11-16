@@ -60,14 +60,18 @@ A new panel needs its settings flashed with `cargo xtask flash --config`, or a c
 - **Steps:**
   1. A setup Wi-Fi network: `touchos-XXXX`, open, only while unconfigured; the on-screen PIN pairing protects the settings. It needs an AP mode in `libs/wlan`/`libs/rt2800` (beacons, probe/auth/assoc responses, FromDS framing), and a DHCP server, catch-all DNS and captive-portal redirects in `net` ([#23](https://github.com/mactijn/touchos/issues/23)).
   2. mDNS: `touchos-xxxx.local`, `_http._tcp`, later `_esphomelib._tcp` for the ESPHome bridge. Needs multicast in smoltcp and on the Wi-Fi chip (`DROP_MC`, see "Fewer wake-ups") ([#24](https://github.com/mactijn/touchos/issues/24)).
-  3. An on-boarding wizard in the settings page: pair, pick a Wi-Fi network from a scan, time zone, Home Assistant (optional; skipping it leads to minimal mode), Z-Wave mode ([#25](https://github.com/mactijn/touchos/issues/25)).
+  3. An on-boarding wizard in the settings page: pair, pick a Wi-Fi network from a scan, time zone, Home Assistant (optional; skipping it picks the thermostat app), Z-Wave mode ([#25](https://github.com/mactijn/touchos/issues/25)).
   4. A factory reset: erase the whole config ring (older records keep the old PSK and token otherwise) and SetDefault on the Z-Wave chip, done at boot so a power cut can't leave it halfway. From the System page, or by holding the screen during boot ([#22](https://github.com/mactijn/touchos/issues/22)).
 
-## Minimal mode and weather
-- **Today:** a weather entity reaches the dashboard, but `libs/hass` keeps only its state (and its temperature, by accident, as `target_temp`), and Font Awesome 4 has no rain, fog or hail icons.
+## Apps and weather
+The panel runs one app at a time (`ui.app`): the Home Assistant dashboard, a thermostat, and the setup screen while unconfigured. They live in one `ui` process: the screen, input, dimming, the PIN and the power menu must work the same whatever is in front, the fonts are ~800 KB per binary, and the ARM926 has only 31 FCSE pids.
+
+- **Today:** `servers/ui` is the dashboard, with the system parts mixed in. A weather entity reaches it, but `libs/hass` keeps only its state (and its temperature, by accident, as `target_temp`), and Font Awesome 4 has no rain, fog or hail icons.
 - **Steps:**
-  1. The weather from Home Assistant: outside temperature and a condition icon in the header next to the clock, and a weather tile; a weather icon font ([#27](https://github.com/mactijn/touchos/issues/27)).
-  2. Minimal mode (`display.mode = "minimal"`): just the thermostat and a clock, no Home Assistant needed. The weather comes from Home Assistant, or from the internet (Open-Meteo) through a new `servers/weather`, which needs an HTTP client and possibly more CA certificates ([#2](https://github.com/mactijn/touchos/issues/2)). Depends on the thermostat ([#19](https://github.com/mactijn/touchos/issues/19)) ([#28](https://github.com/mactijn/touchos/issues/28)).
+  1. Split `servers/ui` into a shell (screen, input, dimming, overlays, the frame loop) and apps behind an `App` trait. Apps reach the rest of the system only through a `Cx` of board reads and ring pushes, so one could move out of process later ([#30](https://github.com/mactijn/touchos/issues/30)).
+  2. The weather from Home Assistant: the weather fields in the HA snapshot, the outside temperature and a condition icon in the header next to the clock, a weather tile, and a weather icon font ([#27](https://github.com/mactijn/touchos/issues/27)).
+  3. One `weather` board from a new `servers/weather`. It picks the source (Home Assistant's entity, or the internet through Open-Meteo), so the UI doesn't care. The internet source needs an HTTP client and possibly more CA certificates ([#2](https://github.com/mactijn/touchos/issues/2)) ([#31](https://github.com/mactijn/touchos/issues/31)).
+  4. The thermostat app (`ui.app = "thermostat"`): the thermostat, a clock and the weather, no Home Assistant needed. Depends on the thermostat ([#19](https://github.com/mactijn/touchos/issues/19)) ([#28](https://github.com/mactijn/touchos/issues/28)).
 
 ## Time zones
 - **Today:** a fixed UTC offset (`display.utc_offset_minutes`) plus EU summer time or none (`display.dst`, `libs/civil`). Right for most of Europe, wrong for North America, the southern hemisphere, and every rule change.
