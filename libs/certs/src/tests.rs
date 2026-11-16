@@ -2,9 +2,7 @@ use super::*;
 
 static ROOTS: &[u8] = include_bytes!("../cacerts.der");
 
-/// Chains as servers sent them in November 2026 (leaf first, concatenated
-/// DER, captured with `openssl s_client -showcerts`). Only names are
-/// checked here, so they don't go stale.
+/// A chain as a server sent it in November 2026 (see tests/verify.rs).
 fn chain(host: &str) -> Vec<&'static [u8]> {
     let der: &'static [u8] = match host {
         "letsencrypt.org" => include_bytes!("../tests/chains/letsencrypt.org.der"),
@@ -101,84 +99,4 @@ fn utc_and_generalized_time() {
     );
     assert_eq!(t(der::UTC_TIME, "700101000000"), None);
     assert_eq!(t(der::UTC_TIME, "701301000000Z"), None);
-}
-
-#[test]
-fn anchors_of_real_chains() {
-    let roots = Roots(ROOTS);
-    let at = |host| {
-        let c = chain(host);
-        let k = roots.anchor(&c).unwrap();
-        let issuer = Cert::parse(c[k]).unwrap().issuer;
-        (
-            k,
-            c.len(),
-            roots
-                .by_subject(issuer)
-                .map(|r| cn(r.subject).to_string())
-                .collect::<Vec<_>>(),
-        )
-    };
-    // leaf <- YE2 <- Root YE <- ISRG Root X2 (cross-signed by X1): Root YE
-    // isn't a root of ours yet, X2 is.
-    assert_eq!(
-        at("letsencrypt.org"),
-        (2, 4, vec!["ISRG Root X2".to_string()])
-    );
-    // ... <- GTS Root R4, cross-signed by GlobalSign Root CA, which the
-    // distros dropped: cut after WE2.
-    assert_eq!(
-        at("www.google.com"),
-        (1, 3, vec!["GTS Root R4".to_string()])
-    );
-    // The server sends the root itself: ours is used.
-    assert_eq!(
-        at("www.digicert.com"),
-        (1, 3, vec!["DigiCert Global Root G2".to_string()])
-    );
-    assert_eq!(
-        at("github.com"),
-        (
-            1,
-            3,
-            vec!["Sectigo Public Server Authentication Root E46".to_string()]
-        )
-    );
-    assert_eq!(
-        at("www.kernel.org"),
-        (1, 3, vec!["GlobalSign Root R46".to_string()])
-    );
-}
-
-#[test]
-fn chains_that_lead_nowhere() {
-    let google = chain("www.google.com");
-    // Without the roots that issued anything in it.
-    let isrg_only: Vec<u8> = Roots(ROOTS)
-        .iter()
-        .filter(|d| cn(Cert::parse(d).unwrap().subject).starts_with("ISRG"))
-        .flatten()
-        .copied()
-        .collect();
-    let err = Roots(&isrg_only).anchor(&google).unwrap_err();
-    assert_eq!(
-        err,
-        NoAnchor::UnknownIssuer(Cert::parse(google[2]).unwrap().issuer)
-    );
-    assert_eq!(
-        format!("{err}"),
-        "no trusted root for \"GlobalSign Root CA\""
-    );
-    // Out of order.
-    assert_eq!(
-        Roots(&isrg_only).anchor(&[google[0], google[2]]),
-        Err(NoAnchor::Unordered(1))
-    );
-    // Not a certificate.
-    assert_eq!(
-        Roots(ROOTS).anchor(&[b"junk"]),
-        Err(NoAnchor::Unreadable(0))
-    );
-    // Nothing at all.
-    assert_eq!(Roots(ROOTS).anchor(&[]), Err(NoAnchor::UnknownIssuer(&[])));
 }

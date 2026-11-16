@@ -1,5 +1,4 @@
-//! The root certificates TLS trusts, and finding the one a server's chain
-//! ends at.
+//! The root certificates TLS trusts, and reading X.509 certificates.
 //!
 //! The roots are one file, `cacerts.der` (next to this crate's Cargo.toml):
 //! the certificates' DER one after the other. Each is a SEQUENCE with its
@@ -8,7 +7,11 @@
 //! bundle and xtask puts it in the initrd; init shares it read-only (the
 //! "cacerts" capability) with every program that speaks TLS.
 //!
-//! No dependencies besides `touchos-civil`: netc (TLS) and xtask both use it.
+//! netc hands the roots to rustls-webpki, which builds and checks the
+//! server's chain (tests/verify.rs runs that same check on real chains);
+//! xtask uses the certificate fields to pick and list the roots.
+//!
+//! No dependencies besides `touchos-civil`.
 
 #![cfg_attr(not(test), no_std)]
 
@@ -212,60 +215,6 @@ impl<'a> Roots<'a> {
     /// The roots we can read.
     pub fn certs(&self) -> impl Iterator<Item = Cert<'a>> + 'a {
         self.iter().filter_map(Cert::parse)
-    }
-
-    /// The roots named `subject`. (Usually one; a re-keyed root can share
-    /// its name with its predecessor.)
-    pub fn by_subject<'s>(&self, subject: &'s [u8]) -> impl Iterator<Item = Cert<'a>> + 's
-    where
-        'a: 's,
-    {
-        self.certs().filter(move |c| c.subject == subject)
-    }
-
-    /// Where a server's chain (leaf first, as TLS sends it) meets our roots:
-    /// the index of the first certificate a root of ours issued. The chain
-    /// is cut there; what the server sent after it (cross-signs by roots we
-    /// don't have, or the root itself) is not needed. Each certificate up to
-    /// that one must be issued by the next (by name; the signatures are
-    /// checked by the TLS verifier).
-    pub fn anchor<'c>(&self, chain: &[&'c [u8]]) -> Result<usize, NoAnchor<'c>> {
-        let mut issuer: &[u8] = &[];
-        for (i, der) in chain.iter().enumerate() {
-            let c = Cert::parse(der).ok_or(NoAnchor::Unreadable(i))?;
-            if i > 0 && c.subject != issuer {
-                return Err(NoAnchor::Unordered(i));
-            }
-            if self.by_subject(c.issuer).next().is_some() {
-                return Ok(i);
-            }
-            issuer = c.issuer;
-        }
-        let last = chain.last().and_then(|d| Cert::parse(d));
-        Err(NoAnchor::UnknownIssuer(
-            last.map(|c| c.issuer).unwrap_or(&[]),
-        ))
-    }
-}
-
-/// Why a chain doesn't lead to one of our roots.
-#[derive(Debug, PartialEq, Eq)]
-pub enum NoAnchor<'a> {
-    /// Certificate `i` isn't one we can read.
-    Unreadable(usize),
-    /// Certificate `i` isn't the issuer of the one before it.
-    Unordered(usize),
-    /// No root of ours issued any of them; the last one's issuer (a Name).
-    UnknownIssuer(&'a [u8]),
-}
-
-impl core::fmt::Display for NoAnchor<'_> {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        match self {
-            NoAnchor::Unreadable(i) => write!(f, "certificate {i} unreadable"),
-            NoAnchor::Unordered(i) => write!(f, "certificate {i} did not issue the one before it"),
-            NoAnchor::UnknownIssuer(n) => write!(f, "no trusted root for \"{}\"", short_name(n)),
-        }
     }
 }
 
