@@ -12,8 +12,8 @@ bench = false
 
 [features]
 tls = [
-    "dep:embedded-tls", "dep:embedded-io", "dep:embedded-io-async", "dep:rand_core",
-    "dep:touchos-certs", "dep:p256", "dep:p384", "dep:rsa", "dep:sha2", "dep:spin",
+    "dep:rustls", "dep:rustls-rustcrypto", "dep:rustls-pki-types", "dep:webpki",
+    "dep:getrandom", "dep:touchos-certs", "dep:spin",
 ]
 
 [dependencies]
@@ -21,15 +21,13 @@ touchos-rt = { path = "../rt" }
 touchos-abi = { path = "../abi" }
 touchos-proto = { path = "../proto" }
 log.workspace = true
-embedded-tls = { version = "0.19", default-features = false, features = ["log", "rustpki", "p384", "rsa", "alloc"], optional = true }
-embedded-io = { version = "0.7", optional = true }
-embedded-io-async = { version = "0.7", optional = true }
-rand_core = { version = "0.6", default-features = false, optional = true }
-# The roots (from the "cacerts" capability) and the server's signature,
-# which we check ourselves (see tls.rs); the same versions embedded-tls uses.
+# TLS: rustls without std (its unbuffered API), the RustCrypto provider,
+# and rustls-webpki for the certificates. getrandom is the provider's
+# randomness, with a "custom" backend (see tls.rs and .cargo/config.toml).
+rustls = { version = "0.23.46", default-features = false, features = ["logging", "tls12"], optional = true }
+rustls-rustcrypto = { version = "=0.1.0-pre.0", default-features = false, features = ["alloc", "tls12", "zeroize", "logging"], optional = true }
+rustls-pki-types = { version = "1.16", default-features = false, features = ["alloc"], optional = true }
+webpki = { package = "rustls-webpki", version = "0.103.17", default-features = false, features = ["alloc"], optional = true }
+getrandom = { version = "0.4", default-features = false, optional = true }
 touchos-certs = { path = "../certs", optional = true }
-p256 = { version = "0.13", default-features = false, features = ["ecdsa", "sha256"], optional = true }
-p384 = { version = "0.13", default-features = false, features = ["ecdsa", "sha384"], optional = true }
-rsa = { version = "0.9.9", default-features = false, features = ["sha2"], optional = true }
-sha2 = { workspace = true, optional = true }
 spin = { workspace = true, optional = true }
