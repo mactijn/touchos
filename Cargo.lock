@@ -1061,6 +1061,13 @@ name = "touchos-blockdev"
 version = "0.1.0"
 
 [[package]]
+name = "touchos-certs"
+version = "0.1.0"
+dependencies = [
+ "touchos-civil",
+]
+
+[[package]]
 name = "touchos-civil"
 version = "0.1.0"
 
@@ -1137,8 +1144,14 @@ dependencies = [
  "embedded-io-async",
  "embedded-tls",
  "log",
+ "p256",
+ "p384",
  "rand_core",
+ "rsa",
+ "sha2",
+ "spin 0.10.1",
  "touchos-abi",
+ "touchos-certs",
  "touchos-proto",
  "touchos-rt",
 ]
@@ -1238,6 +1251,7 @@ version = "0.1.0"
 dependencies = [
  "log",
  "touchos-abi",
+ "touchos-certs",
  "touchos-config",
  "touchos-proto",
  "touchos-rt",
@@ -1466,7 +1480,10 @@ name = "xtask"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "sha2",
  "touchos-abi",
+ "touchos-certs",
+ "touchos-civil",
  "touchos-config",
  "touchos-nand",
  "touchos-tar",
