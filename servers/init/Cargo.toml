@@ -20,3 +20,4 @@ touchos-config = { path = "../../libs/config" }
 touchos-proto = { path = "../../libs/proto" }
 touchos-update = { path = "../../libs/update" }
 touchos-tar = { path = "../../libs/tar" }
+touchos-certs = { path = "../../libs/certs" }

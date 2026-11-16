@@ -94,6 +94,14 @@ pub fn table(board: &'static Board, opts: &Opts, system: u32, initrd: &Mapping, 
         None
     };
     let shared = Shared::new();
+    // The TLS roots: one read-only copy for every program that speaks TLS.
+    let cacerts = initrd_file(initrd, files, touchos_certs::INITRD_FILE);
+    if cacerts.is_none() {
+        log::error!("no {} in the initrd: TLS can't trust any server", touchos_certs::INITRD_FILE);
+    }
+    let cacerts = |caps: &mut Vec<(&'static str, u32)>| {
+        caps.extend(cacerts.map(|c| ("cacerts", mint(c, rights::MAP_READ, 0))));
+    };
     let net_ep = sys::ep_create().expect("ep_create");
     let ui_ep = sys::ep_create().expect("ep_create");
     let mut programs = alloc::vec![];
@@ -175,12 +183,16 @@ pub fn table(board: &'static Board, opts: &Opts, system: u32, initrd: &Mapping, 
             file: "ha",
             args: "",
             policy: Policy::Restart,
-            caps: alloc::vec![
-                ("net", mint(net_ep, rights::CALL, 0)),
-                ("config", config.full),
-                ("state", shared.ha_state),
-                ("calls", shared.ha_calls),
-            ],
+            caps: {
+                let mut c = alloc::vec![
+                    ("net", mint(net_ep, rights::CALL, 0)),
+                    ("config", config.full),
+                    ("state", shared.ha_state),
+                    ("calls", shared.ha_calls),
+                ];
+                cacerts(&mut c);
+                c
+            },
             priority: 0,
         },
         Program {
@@ -435,7 +447,7 @@ pub fn mint(slot: u32, rights: u32, badge: usize) -> u32 {
     sys::cap_mint(slot, rights, badge).expect("cap_mint")
 }
 
-/// A data file of the initrd (firmware) as a memory object of its own,
+/// A data file of the initrd (firmware, the TLS roots) as a memory object of its own,
 /// read-only: a program gets just that file, not the whole initrd.
 fn initrd_file(initrd: &Mapping, files: &[(String, u64, u64)], name: &str) -> Option<u32> {
     let &(_, off, len) = files.iter().find(|(n, _, _)| n == name)?;
