@@ -52,7 +52,29 @@ Nothing goes from the panel to Home Assistant yet: `servers/ha` only mirrors Hom
 
 - **Steps:**
   1. MQTT, with Home Assistant's MQTT discovery; needs a broker ([#16](https://github.com/mactijn/touchos/issues/16)).
-  2. The ESPHome native API, so no broker is needed. Without mDNS (see "Fewer wake-ups"), the panel is added by IP ([#17](https://github.com/mactijn/touchos/issues/17)).
+  2. The ESPHome native API, so no broker is needed. Until mDNS ([#24](https://github.com/mactijn/touchos/issues/24)), the panel is added by IP ([#17](https://github.com/mactijn/touchos/issues/17)).
+
+## First setup and factory reset
+A new panel needs its settings flashed with `cargo xtask flash --config`, or a cable and its IP: without `wifi.ssid` it has no network, and its IP is never shown on screen.
+
+- **Steps:**
+  1. A setup Wi-Fi network: `touchos-XXXX`, open, only while unconfigured; the on-screen PIN pairing protects the settings. It needs an AP mode in `libs/wlan`/`libs/rt2800` (beacons, probe/auth/assoc responses, FromDS framing), and a DHCP server, catch-all DNS and captive-portal redirects in `net` ([#23](https://github.com/mactijn/touchos/issues/23)).
+  2. mDNS: `touchos-xxxx.local`, `_http._tcp`, later `_esphomelib._tcp` for the ESPHome bridge. Needs multicast in smoltcp and on the Wi-Fi chip (`DROP_MC`, see "Fewer wake-ups") ([#24](https://github.com/mactijn/touchos/issues/24)).
+  3. An on-boarding wizard in the settings page: pair, pick a Wi-Fi network from a scan, time zone, Home Assistant (optional; skipping it leads to minimal mode), Z-Wave mode ([#25](https://github.com/mactijn/touchos/issues/25)).
+  4. A factory reset: erase the whole config ring (older records keep the old PSK and token otherwise) and SetDefault on the Z-Wave chip, done at boot so a power cut can't leave it halfway. From the System page, or by holding the screen during boot ([#22](https://github.com/mactijn/touchos/issues/22)).
+
+## Minimal mode and weather
+- **Today:** a weather entity reaches the dashboard, but `libs/hass` keeps only its state (and its temperature, by accident, as `target_temp`), and Font Awesome 4 has no rain, fog or hail icons.
+- **Steps:**
+  1. The weather from Home Assistant: outside temperature and a condition icon in the header next to the clock, and a weather tile; a weather icon font ([#27](https://github.com/mactijn/touchos/issues/27)).
+  2. Minimal mode (`display.mode = "minimal"`): just the thermostat and a clock, no Home Assistant needed. The weather comes from Home Assistant, or from the internet (Open-Meteo) through a new `servers/weather`, which needs an HTTP client and possibly more CA certificates ([#2](https://github.com/mactijn/touchos/issues/2)). Depends on the thermostat ([#19](https://github.com/mactijn/touchos/issues/19)) ([#28](https://github.com/mactijn/touchos/issues/28)).
+
+## Monitoring
+The kernel's figures (switches, idle, free memory, the busiest threads) are only in the log, and no syscall lets user space read them.
+
+- **Steps:**
+  1. A stats syscall (CPU time and switches per thread, memory per process, IRQ counts), metrics boards for the servers' counters, and `/metrics` in the Prometheus format, opt-in and without a session ([#20](https://github.com/mactijn/touchos/issues/20)).
+  2. A process overview on the System page: CPU, switches/s, memory and restarts per process ([#21](https://github.com/mactijn/touchos/issues/21)).
 
 ## Wi-Fi follow-ups
 The RT5370 runs as a WPA2 station; these are the loose ends.
@@ -75,7 +97,7 @@ The RT5370 connects as a legacy 802.11g station.
 Drivers get interrupts (`IRQ_CLAIM`/`IRQ_BIND`/`IRQ_ACK`) and servers wait for events instead of polling on timers; idle, the Toon runs about 50 process switches a second. The kernel logs who was switched to most every minute (`runs/s:`). What's left:
 
 - `wifi` is still the biggest: every frame of our network (beacons, broadcasts, our own traffic) is a wake-up.
-- The Wi-Fi chip drops multicast while joined (DROP_MC). IPv6 or mDNS would need it back, with a multicast filter.
+- The Wi-Fi chip drops multicast while joined (DROP_MC). IPv6 or mDNS ([#24](https://github.com/mactijn/touchos/issues/24)) would need it back, with a multicast filter.
 - `net` ships the kernel log over UDP from its loop, so log lines can leave up to 500 ms late.
 - The `web` and `ntp` loops still sleep in short steps while they wait (rare).
 
@@ -101,6 +123,12 @@ Smooth transitions in the dashboard: pressing a tile, switching rooms, the dimmi
   2. A frame clock in the dashboard: animations by time (e.g. 150–250 ms with easing), with frames only while something moves.
   3. The first animations: the tile press (scale/colour), the room switch (slide), the screen dimming (fade).
   4. Measure frame times (`ui: frame in N ms` in the log) and keep a budget.
+
+## Boot logo
+From power-on until the dashboard's first frame, the screen shows the stock U-Boot splash: a BMP in NAND at `0x180000`, an area touchos never writes.
+
+- **Open:** the BMP format U-Boot 2010.09 accepts, how it finds the image, and what it does with a broken one.
+- **Steps:** dump and document the stock splash; `cargo xtask splash <png>` (with `--dump`/`--restore`) writing a narrow, explicit splash region and nothing else below `0x300000`; later an upload on the settings page ([#26](https://github.com/mactijn/touchos/issues/26)).
 
 ## Audio
 Sound for the panel: alerts, a doorbell chime, button feedback. One `audio` server.
