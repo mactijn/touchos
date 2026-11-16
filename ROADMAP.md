@@ -69,6 +69,10 @@ A new panel needs its settings flashed with `cargo xtask flash --config`, or a c
   1. The weather from Home Assistant: outside temperature and a condition icon in the header next to the clock, and a weather tile; a weather icon font ([#27](https://github.com/mactijn/touchos/issues/27)).
   2. Minimal mode (`display.mode = "minimal"`): just the thermostat and a clock, no Home Assistant needed. The weather comes from Home Assistant, or from the internet (Open-Meteo) through a new `servers/weather`, which needs an HTTP client and possibly more CA certificates ([#2](https://github.com/mactijn/touchos/issues/2)). Depends on the thermostat ([#19](https://github.com/mactijn/touchos/issues/19)) ([#28](https://github.com/mactijn/touchos/issues/28)).
 
+## Time zones
+- **Today:** a fixed UTC offset (`display.utc_offset_minutes`) plus EU summer time or none (`display.dst`, `libs/civil`). Right for most of Europe, wrong for North America, the southern hemisphere, and every rule change.
+- **Steps:** `time.zone` as an IANA name, from a table of each zone's current POSIX TZ rule generated from tzdata (`cargo xtask tzdata`), with a POSIX TZ parser in `libs/civil`; `auto` takes Home Assistant's zone; the old fields stay as a fallback; a zone picker on the settings page ([#29](https://github.com/mactijn/touchos/issues/29)).
+
 ## Monitoring
 The kernel's figures (switches, idle, free memory, the busiest threads) are only in the log, and no syscall lets user space read them.
 
