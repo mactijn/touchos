@@ -44,7 +44,7 @@ Saving can be turned off on the kernel command line (`storage=`):
 | `homeassistant.host` | | IP address (or DNS name) of Home Assistant. The panel can't resolve `.local` names. |
 | `homeassistant.port` | `8123` | Usually 8123, or 443 behind a TLS proxy. |
 | `homeassistant.token` | | A long-lived access token: in Home Assistant, Profile → Security. |
-| `homeassistant.tls` | TLS on port 443 only | Connect with TLS (`wss://`). |
+| `homeassistant.tls` | TLS on port 443 only | Connect with TLS (`wss://`). The certificate must chain to a root in Mozilla's root store (`libs/certs/cacerts.txt`), as a browser's would. |
 | `wifi.ssid` | | The Wi-Fi network. Only WPA2-PSK with AES is supported. Without it, the panel uses Ethernet. |
 | `wifi.psk` | | The Wi-Fi password (8-63 characters). |
 | `display.brightness` | `80` | Backlight in percent while the panel is in use. |

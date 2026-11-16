@@ -4,7 +4,9 @@
 //! - the host tests of every crate that has them (HOST_TESTS);
 //! - both boards' builds (the kernels, the servers and the initrd), with
 //!   the layout checks of `cargo xtask build`;
-//! - the settings page's unit tests, when npm is installed.
+//! - the settings page's unit tests, when npm is installed;
+//! - a warning when libs/certs/cacerts.der is behind the host's CA bundle
+//!   or has a root that expires within a year (`cargo xtask cacerts`).
 //!
 //! `--quick` runs the host tests and `cargo check` of both targets instead
 //! of the full builds (and skips the settings page).
@@ -24,6 +26,7 @@ pub const HOST_TESTS: &[&str] = &[
     "touchos-abi",
     "touchos-atomics",
     "touchos-blockdev",
+    "touchos-certs",
     "touchos-civil",
     "touchos-config",
     "touchos-drv",
@@ -66,6 +69,10 @@ pub fn check(quick: bool) -> Result<()> {
             arm::build(b, false, "")?;
         }
         webui_tests()?;
+    }
+    // An out-of-date list of roots is worth knowing, not a failed check.
+    for w in crate::cacerts::warnings() {
+        println!("warning: {w}");
     }
     step("all checks passed");
     Ok(())

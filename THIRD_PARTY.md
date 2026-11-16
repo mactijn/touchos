@@ -57,9 +57,9 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 They are rasterized at build time; the atlases are embedded in the UI server.
 
-## ISRG Root X1 (`libs/netc/certs/isrg-root-x1.der`)
+## CA certificates (`libs/certs/cacerts.der`)
 
-Let's Encrypt's public root certificate, included so that TLS certificates can be verified.
+The root certificates TLS trusts: Mozilla's CA root store, as Ubuntu's `ca-certificates` package ships it (the version is in the header of `libs/certs/cacerts.txt`). Mozilla publishes the store (`certdata.txt`) under the Mozilla Public License 2.0; the certificates themselves are public. `cargo xtask cacerts` makes the file from `/etc/ssl/certs/ca-certificates.crt`. It keeps the roots that are valid and that TLS here can use, and stores them unmodified as DER. `libs/certs/tests/chains/` holds public certificate chains of a few web sites, as test data.
 
 ## Not in this repository
 

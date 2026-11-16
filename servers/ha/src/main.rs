@@ -3,7 +3,8 @@
 //! the dashboard; executes the dashboard's service calls.
 //!
 //! Capabilities: "net" (TCP), "config" (FULL: it needs the token),
-//! "state" (the board, read-write), "calls" (the ring from the dashboard).
+//! "state" (the board, read-write), "calls" (the ring from the dashboard),
+//! "cacerts" (the TLS roots, read-only).
 
 #![no_std]
 #![no_main]

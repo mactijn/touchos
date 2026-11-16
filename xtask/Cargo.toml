@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 publish.workspace = true
 license.workspace = true
-description = "Build tooling: cargo xtask build, qemu, flash, bundle, check, selftest"
+description = "Build tooling: cargo xtask build, qemu, flash, bundle, check, selftest, cacerts"
 
 [dependencies]
 anyhow = "1"
@@ -13,3 +13,6 @@ touchos-tar = { path = "../libs/tar" }
 touchos-abi = { path = "../libs/abi" }
 touchos-nand = { path = "../libs/nand" }
 touchos-config = { path = "../libs/config" }
+touchos-certs = { path = "../libs/certs" }
+touchos-civil = { path = "../libs/civil" }
+sha2.workspace = true

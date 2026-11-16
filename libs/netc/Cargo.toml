@@ -11,7 +11,10 @@ test = false
 bench = false
 
 [features]
-tls = ["dep:embedded-tls", "dep:embedded-io", "dep:embedded-io-async", "dep:rand_core"]
+tls = [
+    "dep:embedded-tls", "dep:embedded-io", "dep:embedded-io-async", "dep:rand_core",
+    "dep:touchos-certs", "dep:p256", "dep:p384", "dep:rsa", "dep:sha2", "dep:spin",
+]
 
 [dependencies]
 touchos-rt = { path = "../rt" }
@@ -22,3 +25,11 @@ embedded-tls = { version = "0.19", default-features = false, features = ["log", 
 embedded-io = { version = "0.7", optional = true }
 embedded-io-async = { version = "0.7", optional = true }
 rand_core = { version = "0.6", default-features = false, optional = true }
+# The roots (from the "cacerts" capability) and the server's signature,
+# which we check ourselves (see tls.rs); the same versions embedded-tls uses.
+touchos-certs = { path = "../certs", optional = true }
+p256 = { version = "0.13", default-features = false, features = ["ecdsa", "sha256"], optional = true }
+p384 = { version = "0.13", default-features = false, features = ["ecdsa", "sha384"], optional = true }
+rsa = { version = "0.9.9", default-features = false, features = ["sha2"], optional = true }
+sha2 = { workspace = true, optional = true }
+spin = { workspace = true, optional = true }

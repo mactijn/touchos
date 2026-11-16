@@ -13,8 +13,9 @@
 //! `load_image`), the kernel ELF by its load addresses:
 //! - `BOOTINFO`: the boot-info block (magic, lengths, command line);
 //! - `CONFIG`:   the config file (touchos.toml);
-//! - `INITRD`:   the initrd (ustar with the servers; on the Toon also
-//!   the Wi-Fi firmware `rt3071.bin`, when build/firmware has it).
+//! - `INITRD`:   the initrd (ustar with the servers, the TLS roots
+//!   `cacerts.der`, and on the Toon the Wi-Fi firmware `rt3071.bin`, when
+//!   build/firmware has it).
 //!
 //! The offsets, the boot-info block and the boards' RAM bases are
 //! `touchos_abi::imx_boot`, where the kernel reads them too (its side of
@@ -154,7 +155,8 @@ pub fn build(board: Board, release: bool, cmdline: &str) -> Result<Artifacts> {
     // The servers are the same for every ARM board.
     let elfs = initrd::build_servers(release)?;
     let initrd = out.join("touchos.initrd");
-    let mut files = Vec::new();
+    // The TLS roots, shared by init with the programs that speak TLS.
+    let mut files = vec![(touchos_certs::INITRD_FILE.to_string(), crate::cacerts::file())];
     if board == Board::Toon {
         match wifi_firmware() {
             Some(fw) => files.push((RT3071_FW.to_string(), fw)),
