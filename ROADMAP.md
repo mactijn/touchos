@@ -70,7 +70,7 @@ The panel runs one app at a time (`ui.app`): the Home Assistant dashboard, a the
 - **Steps:**
   1. Split `servers/ui` into a shell (screen, input, dimming, overlays, the frame loop) and apps behind an `App` trait. Apps reach the rest of the system only through a `Cx` of board reads and ring pushes, so one could move out of process later ([#30](https://github.com/mactijn/touchos/issues/30)).
   2. The weather from Home Assistant: the weather fields in the HA snapshot, the outside temperature and a condition icon in the header next to the clock, a weather tile, and a weather icon font ([#27](https://github.com/mactijn/touchos/issues/27)).
-  3. One `weather` board from a new `servers/weather`. It picks the source (Home Assistant's entity, or the internet through Open-Meteo), so the UI doesn't care. The internet source needs an HTTP client and possibly more CA certificates ([#2](https://github.com/mactijn/touchos/issues/2)) ([#31](https://github.com/mactijn/touchos/issues/31)).
+  3. One `weather` board from a new `servers/weather`. It picks the source (Home Assistant's entity, or the internet through Open-Meteo), so the UI doesn't care. The internet source needs an HTTP client, and its server the "cacerts" capability from init, like `ha` ([#31](https://github.com/mactijn/touchos/issues/31)).
   4. The thermostat app (`ui.app = "thermostat"`): the thermostat, a clock and the weather, no Home Assistant needed. Depends on the thermostat ([#19](https://github.com/mactijn/touchos/issues/19)) ([#28](https://github.com/mactijn/touchos/issues/28)).
 
 ## Time zones
@@ -83,6 +83,10 @@ The kernel's figures (switches, idle, free memory, the busiest threads) are only
 - **Steps:**
   1. A stats syscall (CPU time and switches per thread, memory per process, IRQ counts), metrics boards for the servers' counters, and `/metrics` in the Prometheus format, opt-in and without a session ([#20](https://github.com/mactijn/touchos/issues/20)).
   2. A process overview on the System page: CPU, switches/s, memory and restarts per process ([#21](https://github.com/mactijn/touchos/issues/21)).
+
+## TLS
+- **Today:** TLS 1.3 (AES-128-GCM) with the certificate checked against Mozilla's root store (`libs/certs/cacerts.der`, shared by init as the "cacerts" capability). The chain itself is checked by embedded-tls, which rejects some valid certificates: more than 7 RDNs in a name (some EV certificates), more than 12 extensions, a host after the first 3 SAN names, and a P-384 key signing with SHA-256 (3 roots).
+- **Steps:** check the chain ourselves, with the DER reader of `libs/certs`, and require `cA` in basicConstraints for every certificate above the leaf ([#32](https://github.com/mactijn/touchos/issues/32)).
 
 ## Wi-Fi follow-ups
 The RT5370 runs as a WPA2 station; these are the loose ends.

@@ -69,6 +69,7 @@ Libraries (`libs/`) hold the logic. Most of it is tested on the development mach
 - `storage`: the storage server's rules (the mode, who may read what);
 - `config`: the settings' schema, validation, patches, and the client;
 - `http`, `webauth`, `netc`, `hass`: HTTP requests and WebSocket frames, pairing and sessions, the net client (with TLS), the Home Assistant messages;
+- `certs`: the root certificates TLS trusts (`cacerts.der`, from the distro's CA bundle by `cargo xtask cacerts`). The file is in the initrd, and init shares one read-only copy (the "cacerts" capability) with each program that speaks TLS;
 - `update`: signed update bundles, and the rule a copy on trial is judged by;
 - `opentherm`, `zwave`: the boiler link's frames, the Z-Wave Serial API;
 - `elf`, `tar`, `civil`, `atomics`: program files, the initrd, calendar time, atomic operations for ARMv5 (which has none).
