@@ -74,7 +74,7 @@ pub struct Time {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Net {
-    /// `net.hostname`; `None` = `touchos-` and the MAC's last two bytes
+    /// `net.hostname`; `None` = `touchos-` and the MAC's last three bytes
     /// (`touchos_proto::net::default_hostname`).
     pub hostname: Option<String>,
     /// Answer mDNS queries and announce services.

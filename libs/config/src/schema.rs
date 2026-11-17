@@ -45,7 +45,7 @@ pub enum Kind {
     EntityId,
     /// An IANA time zone (`Europe/Amsterdam`), or a POSIX TZ rule.
     TimeZone,
-    /// One DNS label: the panel's own name (`touchos-1a2b`): 1 to 63 of
+    /// One DNS label: the panel's own name (`touchos-221a2b`): 1 to 63 of
     /// `a-z`, `0-9` and `-`, not starting or ending with `-`.
     HostName,
 }
@@ -703,7 +703,7 @@ mod tests {
 
     #[test]
     fn host_names() {
-        assert!(matches!(check(Kind::HostName, &s("touchos-1a2b")), Check::Ok(_)));
+        assert!(matches!(check(Kind::HostName, &s("touchos-221a2b")), Check::Ok(_)));
         assert!(matches!(check(Kind::HostName, &s(&"a".repeat(63))), Check::Ok(_)));
         assert_eq!(
             check(Kind::HostName, &s("Kitchen-Panel")),

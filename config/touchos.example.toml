@@ -24,7 +24,7 @@ token = "PASTE-TOKEN-HERE"
 
 [net]
 # The panel's name: http://<name>.local, and what the router lists it as.
-# Default: touchos- and the end of the MAC address (touchos-1a2b).
+# Default: touchos- and the end of the MAC address (touchos-221a2b).
 # hostname = "touchos-kitchen"
 # mdns = false           # don't answer to .local names or announce the settings page
 

@@ -88,11 +88,11 @@ impl<'de> Deserialize<'de> for HostName {
 }
 
 /// The name a panel has when `net.hostname` isn't set: `touchos-` and the
-/// last two bytes of its MAC address in hex (`touchos-1a2b`).
+/// last three bytes of its MAC address in hex (`touchos-221a2b`).
 pub fn default_hostname(mac: [u8; 6]) -> HostName {
-    let mut buf = *b"touchos-xxxx";
+    let mut buf = *b"touchos-xxxxxx";
     let hex = b"0123456789abcdef";
-    for (i, b) in mac[4..].iter().enumerate() {
+    for (i, b) in mac[3..].iter().enumerate() {
         buf[8 + 2 * i] = hex[(b >> 4) as usize];
         buf[9 + 2 * i] = hex[(b & 15) as usize];
     }
@@ -244,8 +244,8 @@ mod tests {
 
     #[test]
     fn host_names() {
-        assert_eq!(default_hostname([0, 0x0f, 0x11, 0x22, 0x1a, 0x2b]).as_str(), "touchos-1a2b");
-        let h = HostName::new("touchos-1a2b-2").unwrap();
+        assert_eq!(default_hostname([0, 0x0f, 0x11, 0x22, 0x1a, 0x2b]).as_str(), "touchos-221a2b");
+        let h = HostName::new("touchos-221a2b-2").unwrap();
         let s = Status { ipv4: Some(([10, 0, 0, 5], 24)), generation: 3, hostname: h };
         assert_eq!(crate::decode::<Status>(&crate::encode(&s)), Some(s));
         assert!(HostName::new(&"a".repeat(64)).is_none());

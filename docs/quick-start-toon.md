@@ -141,7 +141,7 @@ From now on the Toon starts touchos at every power-on, and the watchdog restarts
 
 ## 8. The settings page
 
-Open `http://touchos-xxxx.local/` in a browser on the same network: `xxxx` is the end of the Wi-Fi MAC address, and the log has the name and the IP address (`web: settings page at ...`). If `.local` names don't work on your computer, use the IP address (`http://<panel-ip>/`). Click "Show a code on the panel" and type the 6-digit code from the Toon's screen. You can then change every setting, choose and order tiles, see the log, and install updates.
+Open `http://touchos-xxxxxx.local/` in a browser on the same network: `xxxxxx` is the end of the Wi-Fi MAC address, and the log has the name and the IP address (`web: settings page at ...`). If `.local` names don't work on your computer, use the IP address (`http://<panel-ip>/`). Click "Show a code on the panel" and type the 6-digit code from the Toon's screen. You can then change every setting, choose and order tiles, see the log, and install updates.
 
 The page is plain HTTP: anyone on your network can read what you send it.
 

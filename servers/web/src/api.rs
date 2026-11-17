@@ -159,7 +159,7 @@ fn kind_json(k: Kind) -> Json {
         Kind::TimeRange => json!({ "type": "text", "hint": "HH:MM-HH:MM" }),
         Kind::EntityId => json!({ "type": "text", "hint": "domain.name" }),
         Kind::TimeZone => json!({ "type": "zone" }),
-        Kind::HostName => json!({ "type": "text", "max": 63, "hint": "touchos-xxxx" }),
+        Kind::HostName => json!({ "type": "text", "max": 63, "hint": "touchos-xxxxxx" }),
     }
 }
 
