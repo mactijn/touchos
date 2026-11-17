@@ -210,7 +210,7 @@ mod tests {
     use super::*;
     use crate::wpa::{OFF_MIC, OFF_RSC};
     use aes::Aes128;
-    use aes::cipher::{BlockEncrypt, KeyInit, generic_array::GenericArray};
+    use aes::cipher::{BlockCipherEncrypt, KeyInit};
     use alloc::vec;
 
     const AP: [u8; 6] = [2, 0, 0, 0, 0, 0xa0];
@@ -219,7 +219,7 @@ mod tests {
 
     /// RFC 3394 key wrap: what the access point does to the key data.
     fn aes_wrap(kek: &[u8; 16], plain: &[u8]) -> Vec<u8> {
-        let cipher = Aes128::new(GenericArray::from_slice(kek));
+        let cipher = Aes128::new(&(*kek).into());
         let n = plain.len() / 8;
         let mut a = [0xa6u8; 8];
         let mut r: Vec<[u8; 8]> = plain.chunks(8).map(|c| c.try_into().unwrap()).collect();
@@ -228,7 +228,7 @@ mod tests {
                 let mut b = [0u8; 16];
                 b[..8].copy_from_slice(&a);
                 b[8..].copy_from_slice(&r[i - 1]);
-                let mut block = GenericArray::clone_from_slice(&b);
+                let mut block = aes::Block::from(b);
                 cipher.encrypt_block(&mut block);
                 let t = ((n * j + i) as u64).to_be_bytes();
                 for k in 0..8 {

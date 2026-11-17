@@ -2,7 +2,7 @@
 //! EAPOL-Key 4-way handshake (IEEE 802.11-2016 12.7).
 
 use aes::Aes128;
-use aes::cipher::{BlockDecrypt, KeyInit, generic_array::GenericArray};
+use aes::cipher::{BlockCipherDecrypt, KeyInit};
 use alloc::vec;
 use alloc::vec::Vec;
 use hmac::{Hmac, Mac};
@@ -36,7 +36,7 @@ fn hex_pmk(psk: &str) -> Option<[u8; 32]> {
 }
 
 fn hmac_sha1(key: &[u8], parts: &[&[u8]]) -> [u8; 20] {
-    let mut m = <HmacSha1 as Mac>::new_from_slice(key).expect("hmac key");
+    let mut m = HmacSha1::new_from_slice(key).expect("hmac key");
     for p in parts {
         m.update(p);
     }
@@ -99,7 +99,7 @@ pub fn aes_unwrap(kek: &[u8; 16], wrapped: &[u8]) -> Option<Vec<u8>> {
         return None;
     }
     let n = wrapped.len() / 8 - 1;
-    let cipher = Aes128::new(GenericArray::from_slice(kek));
+    let cipher = Aes128::new(&(*kek).into());
     let mut a = [0u8; 8];
     a.copy_from_slice(&wrapped[..8]);
     let mut r: Vec<[u8; 8]> = wrapped[8..]
@@ -114,7 +114,7 @@ pub fn aes_unwrap(kek: &[u8; 16], wrapped: &[u8]) -> Option<Vec<u8>> {
                 b[k] = a[k] ^ x;
             }
             b[8..].copy_from_slice(&r[i - 1]);
-            let mut block = GenericArray::clone_from_slice(&b);
+            let mut block = aes::Block::from(b);
             cipher.decrypt_block(&mut block);
             a.copy_from_slice(&block[..8]);
             r[i - 1].copy_from_slice(&block[8..]);
