@@ -12,7 +12,8 @@ export type Kind =
   | { type: 'text'; max?: number; hint?: string }
   | { type: 'secret' }
   | { type: 'enum'; options: string[] }
-  | { type: 'list' };
+  | { type: 'list' }
+  | { type: 'zone' };
 
 export type Value = string | number | boolean | string[];
 

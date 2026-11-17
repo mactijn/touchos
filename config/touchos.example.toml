@@ -28,9 +28,10 @@ dim_brightness = 15
 dim_after_seconds = 60
 # Optional: switch the screen off when idle during these hours (touch wakes it).
 # night = "23:00-07:00"
-# Time zone: UTC offset in minutes, plus EU summer time ("eu") or none.
-utc_offset_minutes = 60
-dst = "eu"
+
+[time]
+# Where the panel is (an IANA time zone; summer time included). Default: UTC.
+zone = "Europe/Amsterdam"
 
 [dashboard]
 # Which kinds of entities get tiles (when no [[tile]] list is given).

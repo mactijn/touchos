@@ -146,7 +146,8 @@ mod tests {
 
     #[test]
     fn stamps_from_civil_time() {
-        let t = touchos_civil::local(1_763_161_559, 60, true); // 2025-11-14 23:05:59 UTC
+        let cet = touchos_civil::Tz::parse("CET-1CEST,M3.5.0,M10.5.0/3").unwrap();
+        let t = cet.local(1_763_161_559); // 2025-11-14 23:05:59 UTC
         let s = Stamp::from_civil(&t);
         assert_eq!((s.year, s.month, s.day, s.hour, s.minute, s.second), (2025, 11, 15, 0, 5, 59));
     }

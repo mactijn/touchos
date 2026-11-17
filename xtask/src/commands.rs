@@ -59,6 +59,12 @@ pub const COMMANDS: &[Cmd] = &[
         opts: &[],
         help: "cacerts [PEM] [--check]\n    libs/certs/cacerts.der, the roots TLS trusts, from a CA bundle (default /etc/ssl/certs/ca-certificates.crt); --check: only compare",
     },
+    Cmd {
+        name: "tzdata",
+        flags: &["--check"],
+        opts: &[],
+        help: "tzdata [DIR] [--check]\n    libs/civil/src/zones.rs, every time zone's rule, from compiled tzdata (default /usr/share/zoneinfo); --check: only compare",
+    },
     Cmd { name: "webui", flags: &[], opts: &[], help: "webui [serve [URL]]\n    build the settings page; serve: develop it at http://localhost:4200, /api forwarded to a panel" },
 ];
 

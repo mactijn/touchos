@@ -175,7 +175,7 @@ fn now() -> i64 {
 
 /// UNIX seconds -> YYYY-MM-DD.
 fn date(t: i64) -> String {
-    let c = touchos_civil::local(t.max(0) as u64, 0, false);
+    let c = touchos_civil::Tz::UTC.local(t.max(0) as u64);
     format!("{:04}-{:02}-{:02}", c.year, c.month, c.day)
 }
 

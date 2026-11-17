@@ -235,7 +235,7 @@ pub mod overlay {
 }
 
 pub mod time {
-    pub use touchos_civil::local;
+    pub use touchos_civil::Tz;
     pub use touchos_rt::time::{now_ms, unix_now};
 }
 

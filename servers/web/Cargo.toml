@@ -17,6 +17,7 @@ touchos-rt = { path = "../../libs/rt" }
 touchos-abi = { path = "../../libs/abi" }
 touchos-proto = { path = "../../libs/proto" }
 touchos-config = { path = "../../libs/config" }
+touchos-civil = { path = "../../libs/civil" }
 touchos-netc = { path = "../../libs/netc" }
 touchos-http = { path = "../../libs/http" }
 touchos-webauth = { path = "../../libs/webauth" }

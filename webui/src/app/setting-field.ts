@@ -1,9 +1,11 @@
 // One setting, with the control that fits its kind:
 //   yes/no and short choices: segmented buttons (with "Default" first),
-//   longer choices: a select, lists: chips, the rest: a text field.
-import { Component, computed, input } from '@angular/core';
+//   longer choices: a select, lists: chips, time zones: a text field with
+//   suggestions, the rest: a text field.
+import { Component, OnInit, computed, inject, input } from '@angular/core';
 import { FormControl, ReactiveFormsModule } from '@angular/forms';
 import { COMMA, ENTER } from '@angular/cdk/keycodes';
+import { MatAutocompleteModule } from '@angular/material/autocomplete';
 import { MatButtonToggleModule } from '@angular/material/button-toggle';
 import { MatChipInputEvent, MatChipsModule } from '@angular/material/chips';
 import { MatFormFieldModule } from '@angular/material/form-field';
@@ -12,13 +14,18 @@ import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { Field, SecretState, Value } from './api';
+import { Config } from './config';
 import { defaultOption, placeholder } from './form-values';
 import { fieldError } from './settings-form';
+
+/** Zone suggestions shown at once. */
+const MAX_ZONES = 50;
 
 @Component({
   selector: 'app-setting-field',
   imports: [
     ReactiveFormsModule,
+    MatAutocompleteModule,
     MatButtonToggleModule,
     MatChipsModule,
     MatFormFieldModule,
@@ -31,7 +38,8 @@ import { fieldError } from './settings-form';
   styleUrl: './setting-field.scss',
   host: { '[class.changed]': 'changed()' },
 })
-export class SettingField {
+export class SettingField implements OnInit {
+  private config = inject(Config);
   readonly field = input.required<Field>();
   readonly control = input.required<FormControl<string>>();
   /** The stored value (for placeholders: "set", the default…). */
@@ -69,6 +77,17 @@ export class SettingField {
         return null;
     }
   });
+
+  ngOnInit() {
+    if (this.field().kind.type === 'zone') this.config.loadZones();
+  }
+
+  /** Zones matching what is typed ("new york" finds America/New_York). */
+  protected zones(typed: string | null): string[] {
+    const q = (typed ?? '').trim().toLowerCase().replace(/ /g, '_');
+    const all = this.config.zones();
+    return (q ? all.filter((z) => z.toLowerCase().includes(q)) : all).slice(0, MAX_ZONES);
+  }
 
   protected error(): string | null {
     const c = this.control();

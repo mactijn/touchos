@@ -59,7 +59,7 @@ impl Ui {
         let cv = &mut self.canvas;
         let now = time::unix_now();
         if now != 0 {
-            let t = time::local(now, self.utc_offset, self.eu_dst);
+            let t = self.tz.local(now);
             let clock = format!("{:02}:{:02}", t.hour, t.minute);
             let cw = cv.text(&f::CLOCK, PAD + s(8), s(140), &clock, TEXT);
             pub(super) const DAYS: [&str; 7] = [

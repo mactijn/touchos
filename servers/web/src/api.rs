@@ -54,6 +54,7 @@ pub async fn handle(req: &Request) -> Response {
         ("GET", "/api/status") => ok(status()),
         ("GET", "/api/log") => log(req),
         ("GET", "/api/ha/entities") => ok(entities()),
+        ("GET", "/api/zones") => ok(json!(touchos_civil::listed().collect::<Vec<_>>())),
         ("GET", "/api/update") => ok(update_state()),
         ("POST", "/api/reboot") => {
             PENDING_REBOOT.with(|p| *p = Some(1000));
@@ -157,6 +158,7 @@ fn kind_json(k: Kind) -> Json {
         Kind::Endpoint => json!({ "type": "text", "hint": "IP:port" }),
         Kind::TimeRange => json!({ "type": "text", "hint": "HH:MM-HH:MM" }),
         Kind::EntityId => json!({ "type": "text", "hint": "domain.name" }),
+        Kind::TimeZone => json!({ "type": "zone" }),
     }
 }
 

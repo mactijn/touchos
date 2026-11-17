@@ -70,8 +70,8 @@ pub fn check(quick: bool) -> Result<()> {
         }
         webui_tests()?;
     }
-    // An out-of-date list of roots is worth knowing, not a failed check.
-    for w in crate::cacerts::warnings() {
+    // An out-of-date list of roots or zones is worth knowing, not a failed check.
+    for w in crate::cacerts::warnings().into_iter().chain(crate::tzdata::warnings()) {
         println!("warning: {w}");
     }
     step("all checks passed");

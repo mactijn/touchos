@@ -52,9 +52,8 @@ Saving can be turned off on the kernel command line (`storage=`):
 | `display.dim_after_seconds` | `60` | How long without touches before the screen dims. |
 | `display.night` | | Switch the screen off when idle during these hours, e.g. `"23:00-07:00"`. A touch wakes it. |
 | `display.rotation` | `"auto"` | `"0"`, `"90"`, `"180"`, `"270"`; `"auto"` follows an accelerometer where the board has one (the Toon has none). |
-| `display.utc_offset_minutes` | `60` | Time zone: 60 for Central European Time. |
-| `display.dst` | `"eu"` | `"eu"`: European summer time rules. `"none"`: no summer time. |
 | `display.ui` | `"on"` | `"off"` keeps the text console on screen (for debugging). |
+| `time.zone` | `"UTC"` | Where the panel is: an IANA time zone such as `"Europe/Amsterdam"` or `"America/New_York"`, summer time included. A POSIX TZ rule (`"CET-1CEST,M3.5.0,M10.5.0/3"`) also works, for a zone whose rules changed after the build. Replaces `display.utc_offset_minutes` and `display.dst`, which are no longer read. |
 | `time.ntp_server` | `"time.google.com"` | Used when the network's own time server (from DHCP) doesn't answer, or there is none. |
 | `dashboard.types` | lights, switches, climate, covers, fans, locks, media players, sensors | Which kinds of entities get tiles when no tiles are listed. |
 | `dashboard.rooms` | all | Which Home Assistant areas to show, in this order. `"Other"` = entities without an area. |

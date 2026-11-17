@@ -1202,6 +1202,7 @@ version = "0.1.0"
 dependencies = [
  "log",
  "touchos-abi",
+ "touchos-civil",
  "touchos-rt",
 ]
 
@@ -1476,6 +1477,7 @@ dependencies = [
  "log",
  "serde_json",
  "touchos-abi",
+ "touchos-civil",
  "touchos-config",
  "touchos-http",
  "touchos-netc",

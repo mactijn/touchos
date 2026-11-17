@@ -61,6 +61,10 @@ They are rasterized at build time; the atlases are embedded in the UI server.
 
 The root certificates TLS trusts: Mozilla's CA root store, as Ubuntu's `ca-certificates` package ships it (the version is in the header of `libs/certs/cacerts.txt`). Mozilla publishes the store (`certdata.txt`) under the Mozilla Public License 2.0; the certificates themselves are public. `cargo xtask cacerts` makes the file from `/etc/ssl/certs/ca-certificates.crt`. It keeps the roots that are valid and that TLS here can use, and stores them unmodified as DER. `libs/certs/tests/chains/` holds public certificate chains of a few web sites, as test data.
 
+## Time zones (`libs/civil/src/zones.rs`)
+
+The current rule of every time zone, from the IANA time zone database (tzdata), which is in the public domain. `cargo xtask tzdata` makes the file from the host's compiled tzdata (`/usr/share/zoneinfo`): the POSIX TZ rule at the end of each zone's file. The tzdata version is in the file.
+
 ## Not in this repository
 
 - **Ralink RT2800 USB firmware** `rt3071.bin` (from linux-firmware; the same bytes as the upper 4 KiB of `rt2870.bin`). Copyright (c) 2007 Ralink Technology Corporation; linux-firmware's `LICENCE.ralink-firmware.txt` allows redistribution of the unmodified binary with its notice and disclaimer. It is kept out of git; see docs/quick-start-toon.md. The Toon build puts it into the initrd.

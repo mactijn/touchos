@@ -82,8 +82,7 @@ struct Ui {
     /// Brightness preview while dragging: (tile index, brightness 0..=255)
     preview: Option<(usize, i32)>,
     pressed: Option<(usize, u64)>,
-    utc_offset: i64,
-    eu_dst: bool,
+    tz: time::Tz,
     rotation: u8,
 }
 
@@ -257,8 +256,7 @@ pub async fn task(mut fb: Framebuffer) {
         gesture: Gesture::None,
         preview: None,
         pressed: None,
-        utc_offset: cfg.display.utc_offset_minutes as i64,
-        eu_dst: cfg.display.eu_dst,
+        tz: cfg.time.zone,
         rotation: 0,
     };
     info!("dashboard on {}x{}", fb.width, fb.height);
@@ -294,8 +292,7 @@ pub async fn task(mut fb: Framebuffer) {
         if config::changed() {
             // Display settings, time zone, tiles and rooms: rebuild.
             let cfg = config::get();
-            ui.utc_offset = cfg.display.utc_offset_minutes as i64;
-            ui.eu_dst = cfg.display.eu_dst;
+            ui.tz = cfg.time.zone;
             screen = Screen::new_from(screen);
             tiles_for_registry = None;
             dirty = true;
@@ -449,7 +446,7 @@ pub async fn task(mut fb: Framebuffer) {
         }
         let minute = time::unix_now() / 60;
         let local = (time::unix_now() != 0)
-            .then(|| time::local(time::unix_now(), ui.utc_offset, ui.eu_dst));
+            .then(|| ui.tz.local(time::unix_now()));
         screen.update(local.map(|t| t.hour * 60 + t.minute));
         if ui.pressed.is_some_and(|(_, at)| time::now_ms() - at > 400) {
             ui.pressed = None;

@@ -10,6 +10,9 @@ description = "touchos.toml: TOML-subset parser, format-preserving writer, schem
 test = true
 bench = false
 
+[dependencies]
+touchos-civil = { path = "../civil" }
+
 # The client (src/client.rs) talks to the server through the runtime;
 # host tests build without it.
 [target.'cfg(target_os = "none")'.dependencies]
