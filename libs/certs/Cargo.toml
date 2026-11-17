@@ -11,3 +11,11 @@ bench = false
 
 [dependencies]
 touchos-civil = { path = "../civil" }
+
+# tests/verify.rs: the check netc does (rustls-webpki with the RustCrypto
+# provider), on real chains against these roots.
+[dev-dependencies]
+rustls = { version = "0.23.46", default-features = false, features = ["std", "tls12"] }
+rustls-rustcrypto = "=0.1.0-pre.0"
+rustls-pki-types = "1.16"
+webpki = { package = "rustls-webpki", version = "0.103.17", default-features = false, features = ["alloc"] }

@@ -32,7 +32,7 @@ The kernel is started by touchos's boot stage in NAND (`tools/toon/nandboot`, st
 | `wifi` | The RT5370 on the internal EHCI (`libs/rt2800`), and the chip-independent WPA2 station (`libs/wlan`) |
 | `fec` | The i.MX Ethernet controller |
 | `net` | smoltcp: DHCP, DNS, TCP for the other processes (data through shared memory), NTP, the UDP log |
-| `ha` | The Home Assistant client (WebSocket over TLS 1.3) |
+| `ha` | The Home Assistant client (WebSocket over TLS) |
 | `ui` | The dashboard: owns the framebuffer and the backlight |
 | `web` | The settings page (HTTP) |
 | `update` | Installs signed updates into the copy that isn't running |
@@ -68,7 +68,7 @@ Libraries (`libs/`) hold the logic. Most of it is tested on the development mach
 - `blockdev`, `gpt`: block devices and partition tables (USB disks);
 - `storage`: the storage server's rules (the mode, who may read what);
 - `config`: the settings' schema, validation, patches, and the client;
-- `http`, `webauth`, `netc`, `hass`: HTTP requests and WebSocket frames, pairing and sessions, the net client (with TLS), the Home Assistant messages;
+- `http`, `webauth`, `netc`, `hass`: HTTP requests and WebSocket frames, pairing and sessions, the net client (with TLS: rustls, its RustCrypto provider, and rustls-webpki for the certificates), the Home Assistant messages;
 - `certs`: the root certificates TLS trusts (`cacerts.der`, from the distro's CA bundle by `cargo xtask cacerts`). The file is in the initrd, and init shares one read-only copy (the "cacerts" capability) with each program that speaks TLS;
 - `update`: signed update bundles, and the rule a copy on trial is judged by;
 - `opentherm`, `zwave`: the boiler link's frames, the Z-Wave Serial API;

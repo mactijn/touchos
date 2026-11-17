@@ -9,7 +9,7 @@ use crate::sys;
 struct Logger;
 
 /// Crates whose debug and trace messages we drop.
-const LIBS: &[&str] = &["embedded_tls", "smoltcp", "p384", "rsa"];
+const LIBS: &[&str] = &["rustls", "webpki", "smoltcp"]; // prefixes: rustls_rustcrypto too
 
 /// Formats into a fixed buffer; long messages are cut off.
 struct Buf {

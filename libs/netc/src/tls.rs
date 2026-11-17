@@ -1,35 +1,36 @@
-//! TLS 1.3 client (embedded-tls) over our TCP streams. The server's
-//! certificate is checked against the roots in the "cacerts" capability
-//! (libs/certs/cacerts.der in the initrd, shared by init) and the wall clock.
+//! TLS 1.2 and 1.3 client (rustls, with the RustCrypto provider) over our TCP
+//! streams. The server's certificate is checked by rustls-webpki against
+//! the roots in the "cacerts" capability (libs/certs/cacerts.der in the
+//! initrd, shared by init) and the wall clock.
 //!
-//! embedded-tls's own verifier takes one root, and needs the last
-//! certificate the server sends to be issued by it. Servers often end their
-//! chain with a cross-sign by a root the distros have since dropped (GTS
-//! Root R4 by GlobalSign Root CA, for google.com and home-assistant.io), so
-//! [`RootStore`] finds where the chain meets one of our roots, cuts it
-//! there, and runs embedded-tls's verifier on that part with that root.
-//!
-//! That verifier has limits: at most 7 RDNs in a name (some EV certificates
-//! have more), 12 extensions, the host matched against the first 3 SAN
-//! names, and the curve taken from the signature's hash. Checking the chain
-//! ourselves would lift them (#32).
+//! Without `std`, rustls has no I/O of its own: its unbuffered API takes the
+//! bytes we received and says what to do next (send these bytes, wait for
+//! more, here is application data). [`TlsStream`] drives it over a
+//! [`TcpStream`].
 
-use alloc::string::String;
+use alloc::sync::Arc;
 use alloc::vec::Vec;
-use embedded_io::ErrorKind;
-use embedded_tls::pki::CertVerifier;
-use embedded_tls::{
-    Aes128GcmSha256, Certificate, CertificateEntryRef, CertificateRef, CertificateVerifyRef,
-    CryptoProvider, SignatureScheme, TlsClock, TlsConfig, TlsConnection, TlsContext, TlsError,
-    TlsVerifier,
-};
-use rand_core::{CryptoRng, RngCore};
-use sha2::{Digest, Sha256};
-use touchos_certs::{Cert, KeyType, Roots, short_name};
+use rustls::client::UnbufferedClientConnection;
+use rustls::unbuffered::{ConnectionState, EncodeError, EncryptError, UnbufferedStatus};
+use rustls::{ClientConfig, RootCertStore};
+use rustls_pki_types::{CertificateDer, ServerName, UnixTime};
 
 use super::{NetError, TcpStream};
+use touchos_certs::Roots;
 use touchos_rt::caps::Mapping;
-use touchos_rt::time;
+use touchos_rt::{exec, time};
+
+/// Bytes of each of the two record buffers a session needs: the largest
+/// TLS record (16 KiB of data plus 2 KiB of TLS 1.2 overhead, and its
+/// header) and some of the next one.
+pub const RECORD_BUF: usize = 18 * 1024 + 512;
+
+/// Application data per record we send (the protocol's maximum).
+const MAX_FRAGMENT: usize = 16 * 1024;
+
+/// How long a handshake waits for the wall clock (NTP, on a board without
+/// a battery-backed RTC) before trying without it, which fails.
+const CLOCK_WAIT_MS: u64 = 15_000;
 
 /// The roots, from the "cacerts" capability: mapped on first use and kept
 /// for the life of the process. Without the capability there are none,
@@ -52,248 +53,93 @@ fn roots() -> Roots<'static> {
     }))
 }
 
-/// TCP stream as an embedded-io-async transport.
-pub struct TcpIo(pub TcpStream);
-
-impl embedded_io::ErrorType for TcpIo {
-    type Error = ErrorKind;
+/// One client configuration per process: the trust anchors point into the
+/// mapped roots, so they are parsed once and never copied.
+fn config() -> Arc<ClientConfig> {
+    static CONFIG: spin::Once<Arc<ClientConfig>> = spin::Once::new();
+    CONFIG
+        .call_once(|| {
+            let mut store = RootCertStore::empty();
+            let mut bad = 0;
+            for der in roots().iter() {
+                // The anchor borrows from the certificate for as long as
+                // the process runs (a small header each; the bytes stay
+                // in the mapping).
+                let der: &'static CertificateDer<'static> =
+                    alloc::boxed::Box::leak(alloc::boxed::Box::new(CertificateDer::from(der)));
+                match webpki::anchor_from_trusted_cert(der) {
+                    Ok(a) => store.roots.push(a),
+                    Err(_) => bad += 1,
+                }
+            }
+            if bad > 0 {
+                ::log::warn!("tls: {bad} roots unreadable");
+            }
+            let provider = Arc::new(rustls_rustcrypto::provider());
+            let config = ClientConfig::builder_with_details(provider, Arc::new(WallClock))
+                .with_safe_default_protocol_versions()
+                .expect("the provider supports TLS 1.2 and 1.3")
+                .with_root_certificates(store)
+                .with_no_client_auth();
+            Arc::new(config)
+        })
+        .clone()
 }
 
-impl embedded_io_async::Read for TcpIo {
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, ErrorKind> {
-        self.0
-            .read(buf)
-            .await
-            .map_err(|_| ErrorKind::ConnectionReset)
-    }
-}
+/// Certificates are checked against the wall clock (the RTC at boot, then
+/// NTP). Before it is known, rustls refuses every certificate.
+#[derive(Debug)]
+struct WallClock;
 
-impl embedded_io_async::Write for TcpIo {
-    async fn write(&mut self, buf: &[u8]) -> Result<usize, ErrorKind> {
-        self.0
-            .write_all(buf)
-            .await
-            .map_err(|_| ErrorKind::ConnectionReset)?;
-        Ok(buf.len())
-    }
-    async fn flush(&mut self) -> Result<(), ErrorKind> {
-        Ok(())
-    }
-}
-
-/// The kernel's entropy pool as an RNG (see `touchos_rt::rand`).
-pub struct Rng;
-
-impl RngCore for Rng {
-    fn next_u32(&mut self) -> u32 {
-        let mut b = [0u8; 4];
-        self.fill_bytes(&mut b);
-        u32::from_le_bytes(b)
-    }
-    fn next_u64(&mut self) -> u64 {
-        let mut b = [0u8; 8];
-        self.fill_bytes(&mut b);
-        u64::from_le_bytes(b)
-    }
-    fn fill_bytes(&mut self, dest: &mut [u8]) {
-        touchos_rt::rand::fill(dest)
-    }
-    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_core::Error> {
-        self.fill_bytes(dest);
-        Ok(())
-    }
-}
-impl CryptoRng for Rng {}
-
-/// Certificate validity is checked against the wall clock (RTC at boot).
-pub struct WallClock;
-
-impl TlsClock for WallClock {
-    fn now() -> Option<u64> {
+impl rustls::time_provider::TimeProvider for WallClock {
+    fn current_time(&self) -> Option<UnixTime> {
         match time::unix_now() {
             0 => None,
-            t => Some(t),
+            t => Some(UnixTime::since_unix_epoch(core::time::Duration::from_secs(
+                t,
+            ))),
         }
     }
 }
 
-pub struct Provider {
-    rng: Rng,
-    verifier: RootStore,
+/// The RustCrypto provider draws its randomness (handshake nonces, key
+/// shares) through getrandom, whose "custom" backend (see
+/// .cargo/config.toml) is the kernel's entropy pool.
+#[unsafe(no_mangle)]
+unsafe extern "Rust" fn __getrandom_v03_custom(
+    dest: *mut u8,
+    len: usize,
+) -> Result<(), getrandom::Error> {
+    touchos_rt::rand::fill(unsafe { core::slice::from_raw_parts_mut(dest, len) });
+    Ok(())
 }
 
-impl Provider {
-    pub fn new() -> Provider {
-        Provider {
-            rng: Rng,
-            verifier: RootStore::default(),
-        }
-    }
+/// What processing the received records came to.
+enum Step {
+    /// Handshake done and nothing (more) to process: we may send, or wait
+    /// for more data.
+    Ready,
+    /// The handshake needs more data from the server.
+    NeedData,
+    /// The server closed the session.
+    Closed,
 }
-
-impl CryptoProvider for Provider {
-    type CipherSuite = Aes128GcmSha256;
-    type Signature = Vec<u8>;
-
-    fn rng(&mut self) -> impl embedded_tls::CryptoRngCore {
-        &mut self.rng
-    }
-
-    fn verifier(&mut self) -> Result<&mut impl TlsVerifier<Self::CipherSuite>, TlsError> {
-        Ok(&mut self.verifier)
-    }
-}
-
-/// Checks the server's certificate against our roots (see the top of this
-/// file), then its CertificateVerify signature with the leaf's key.
-#[derive(Default)]
-pub struct RootStore {
-    host: Option<String>,
-    /// From a verified chain, for `verify_signature`: the leaf, and the
-    /// transcript up to the certificate.
-    leaf: Option<Vec<u8>>,
-    transcript: Option<Sha256>,
-}
-
-impl TlsVerifier<Aes128GcmSha256> for RootStore {
-    fn set_hostname_verification(&mut self, hostname: &str) -> Result<(), TlsError> {
-        self.host = Some(hostname.into());
-        Ok(())
-    }
-
-    fn verify_certificate(
-        &mut self,
-        transcript: &Sha256,
-        cert: CertificateRef,
-    ) -> Result<(), TlsError> {
-        let chain: Vec<&[u8]> = cert
-            .entries
-            .iter()
-            .filter_map(|e| match e {
-                CertificateEntryRef::X509(d) => Some(*d),
-                CertificateEntryRef::RawPublicKey(_) => None,
-            })
-            .collect();
-        if chain.is_empty() || chain.len() != cert.entries.len() {
-            return Err(TlsError::InvalidCertificate);
-        }
-        let roots = roots();
-        let k = roots.anchor(&chain).map_err(|e| {
-            ::log::warn!("tls: {e}");
-            TlsError::InvalidCertificate
-        })?;
-        let issuer = Cert::parse(chain[k]).ok_or(TlsError::DecodeError)?.issuer;
-        let now = WallClock::now();
-        let mut result = Err(TlsError::InvalidCertificate);
-        for root in roots.by_subject(issuer) {
-            // embedded-tls checks the dates of the chain, not of the root.
-            if let Some(now) = now
-                && !root.valid_at(now as i64)
-            {
-                ::log::warn!(
-                    "tls: root \"{}\" is not valid now",
-                    short_name(root.subject)
-                );
-                continue;
-            }
-            // The chain up to the certificate our root issued: entries
-            // after it are not needed (and may be signed by roots we lack).
-            let mut part = CertificateRef::with_context(&[]);
-            for d in &chain[..=k] {
-                part.add(CertificateEntryRef::X509(d))?;
-            }
-            let mut v =
-                CertVerifier::<Aes128GcmSha256, WallClock, 0>::new(Certificate::X509(root.der));
-            if let Some(h) = &self.host {
-                v.set_hostname_verification(h)?;
-            }
-            result = v.verify_certificate(transcript, part);
-            if result.is_ok() {
-                self.leaf = Some(chain[0].to_vec());
-                self.transcript = Some(transcript.clone());
-                return Ok(());
-            }
-        }
-        if let Err(e) = &result {
-            ::log::warn!("tls: chain to \"{}\" not valid: {e:?}", short_name(issuer));
-        }
-        result
-    }
-
-    fn verify_signature(&mut self, verify: CertificateVerifyRef) -> Result<(), TlsError> {
-        let (Some(leaf), Some(transcript)) = (self.leaf.take(), self.transcript.take()) else {
-            return Err(TlsError::InvalidCertificate);
-        };
-        // RFC 8446 4.4.3: 64 spaces, the context string, the transcript hash.
-        let mut msg = Vec::with_capacity(64 + 34 + 32);
-        msg.resize(64, 0x20);
-        msg.extend_from_slice(b"TLS 1.3, server CertificateVerify\x00");
-        msg.extend_from_slice(&transcript.finalize());
-        let cert = Cert::parse(&leaf).ok_or(TlsError::DecodeError)?;
-        let ok = signature_ok(verify.signature_scheme, &cert, &msg, verify.signature)?;
-        if ok {
-            Ok(())
-        } else {
-            Err(TlsError::InvalidSignature)
-        }
-    }
-}
-
-/// Whether `sig` (scheme `scheme`) over `msg` is by `cert`'s key.
-fn signature_ok(
-    scheme: SignatureScheme,
-    cert: &Cert,
-    msg: &[u8],
-    sig: &[u8],
-) -> Result<bool, TlsError> {
-    use rsa::pkcs1::DecodeRsaPublicKey;
-    use rsa::signature::Verifier as _;
-    fn pss<D>(key: &[u8], msg: &[u8], sig: &[u8]) -> Result<bool, TlsError>
-    where
-        D: Digest + rsa::sha2::digest::FixedOutputReset,
-    {
-        let key = rsa::RsaPublicKey::from_pkcs1_der(key).map_err(|_| TlsError::DecodeError)?;
-        let sig = rsa::pss::Signature::try_from(sig).map_err(|_| TlsError::DecodeError)?;
-        Ok(rsa::pss::VerifyingKey::<D>::new(key)
-            .verify(msg, &sig)
-            .is_ok())
-    }
-    match (scheme, cert.key_type) {
-        (SignatureScheme::EcdsaSecp256r1Sha256, KeyType::P256) => {
-            use p256::ecdsa::{Signature, VerifyingKey};
-            let key = VerifyingKey::from_sec1_bytes(cert.key).map_err(|_| TlsError::DecodeError)?;
-            let sig = Signature::from_der(sig).map_err(|_| TlsError::DecodeError)?;
-            Ok(key.verify(msg, &sig).is_ok())
-        }
-        (SignatureScheme::EcdsaSecp384r1Sha384, KeyType::P384) => {
-            use p384::ecdsa::{Signature, VerifyingKey};
-            let key = VerifyingKey::from_sec1_bytes(cert.key).map_err(|_| TlsError::DecodeError)?;
-            let sig = Signature::from_der(sig).map_err(|_| TlsError::DecodeError)?;
-            Ok(key.verify(msg, &sig).is_ok())
-        }
-        (SignatureScheme::RsaPssRsaeSha256, KeyType::Rsa) => pss::<Sha256>(cert.key, msg, sig),
-        (SignatureScheme::RsaPssRsaeSha384, KeyType::Rsa) => {
-            pss::<sha2::Sha384>(cert.key, msg, sig)
-        }
-        (SignatureScheme::RsaPssRsaeSha512, KeyType::Rsa) => {
-            pss::<sha2::Sha512>(cert.key, msg, sig)
-        }
-        (s, k) => {
-            ::log::warn!("tls: signature {s:?} with a {k:?} key not supported");
-            Err(TlsError::InvalidSignatureScheme)
-        }
-    }
-}
-
-/// Bytes of each of the two record buffers a session needs (a TLS record
-/// of up to 16 KiB, plus its header and tag).
-pub const RECORD_BUF: usize = 16 * 1024 + 256;
 
 /// An open TLS session. Record buffers ([`RECORD_BUF`] bytes each) are
 /// borrowed from the caller.
 pub struct TlsStream<'a> {
-    conn: TlsConnection<'a, TcpIo, Aes128GcmSha256>,
-    probe: super::Probe,
+    conn: UnbufferedClientConnection,
+    tcp: TcpStream,
+    /// Received bytes not yet processed, `incoming[..in_len]`.
+    incoming: &'a mut [u8],
+    in_len: usize,
+    /// Records to send, `outgoing[..out_len]`.
+    outgoing: &'a mut [u8],
+    out_len: usize,
+    /// Decrypted application data not yet read, from `plain_at`.
+    plain: Vec<u8>,
+    plain_at: usize,
+    closed: bool,
 }
 
 impl<'a> TlsStream<'a> {
@@ -305,46 +151,214 @@ impl<'a> TlsStream<'a> {
         rx_buf: &'a mut [u8],
         tx_buf: &'a mut [u8],
     ) -> Result<TlsStream<'a>, NetError> {
-        let probe = tcp.probe();
-        let config = TlsConfig::new().with_server_name(server_name);
-        let mut conn = TlsConnection::new(TcpIo(tcp), rx_buf, tx_buf);
-        conn.open(TlsContext::new(&config, Provider::new()))
-            .await
-            .map_err(|e| {
-                ::log::warn!("tls: handshake failed: {e:?}");
+        let name = ServerName::try_from(server_name)
+            .map_err(|_| {
+                ::log::warn!("tls: {server_name:?} is not a server name");
+                NetError::ConnectFailed
+            })?
+            .to_owned();
+        // Certificates can't be checked without the date.
+        let t0 = time::now_ms();
+        while time::unix_now() == 0 && time::now_ms() - t0 < CLOCK_WAIT_MS {
+            exec::sleep_ms(250).await;
+        }
+        let conn = UnbufferedClientConnection::new(config(), name).map_err(|e| {
+            ::log::warn!("tls: {e}");
+            NetError::ConnectFailed
+        })?;
+        let mut s = TlsStream {
+            conn,
+            tcp,
+            incoming: rx_buf,
+            in_len: 0,
+            outgoing: tx_buf,
+            out_len: 0,
+            plain: Vec::new(),
+            plain_at: 0,
+            closed: false,
+        };
+        loop {
+            let step = s.process(None).await.map_err(|e| {
+                ::log::warn!("tls: handshake failed: {e}");
                 NetError::ConnectFailed
             })?;
-        Ok(TlsStream { conn, probe })
+            match step {
+                Step::Ready => return Ok(s),
+                Step::NeedData => {
+                    if !s.receive().await? {
+                        ::log::warn!("tls: handshake failed: the server closed the connection");
+                        return Err(NetError::ConnectFailed);
+                    }
+                }
+                Step::Closed => return Err(NetError::ConnectFailed),
+            }
+        }
+    }
+
+    /// Run rustls over what we have received: send what it wants sent,
+    /// keep the application data, and (if `send` is given and the
+    /// handshake is done) encrypt and send `send`.
+    async fn process(&mut self, mut send: Option<&[u8]>) -> Result<Step, rustls::Error> {
+        let TlsStream {
+            conn,
+            tcp,
+            incoming,
+            in_len,
+            outgoing,
+            out_len,
+            plain,
+            ..
+        } = self;
+        loop {
+            let UnbufferedStatus { discard, state } =
+                conn.process_tls_records(&mut incoming[..*in_len]);
+            let step = match state? {
+                ConnectionState::ReadTraffic(mut r) => {
+                    while let Some(record) = r.next_record() {
+                        plain.extend_from_slice(record?.payload);
+                    }
+                    None
+                }
+                ConnectionState::EncodeTlsData(mut e) => {
+                    *out_len += e.encode(&mut outgoing[*out_len..]).map_err(encode_error)?;
+                    None
+                }
+                ConnectionState::TransmitTlsData(t) => {
+                    transmit(tcp, &outgoing[..*out_len]).await?;
+                    *out_len = 0;
+                    t.done();
+                    None
+                }
+                ConnectionState::WriteTraffic(mut w) => match send.take() {
+                    Some(data) => {
+                        for chunk in data.chunks(MAX_FRAGMENT) {
+                            let n = w.encrypt(chunk, outgoing).map_err(encrypt_error)?;
+                            transmit(tcp, &outgoing[..n]).await?;
+                        }
+                        Some(Step::Ready)
+                    }
+                    None => Some(Step::Ready),
+                },
+                ConnectionState::BlockedHandshake => Some(Step::NeedData),
+                ConnectionState::PeerClosed | ConnectionState::Closed => Some(Step::Closed),
+                _ => return Err(rustls::Error::General("unexpected TLS state".into())),
+            };
+            incoming.copy_within(discard..*in_len, 0);
+            *in_len -= discard;
+            if let Some(step) = step {
+                return Ok(step);
+            }
+        }
+    }
+
+    /// Append what the server sent to `incoming`, waiting for it. False if
+    /// the connection is closed.
+    async fn receive(&mut self) -> Result<bool, NetError> {
+        if self.in_len == self.incoming.len() {
+            ::log::warn!("tls: a record larger than the buffer");
+            return Err(NetError::Closed);
+        }
+        let n = self.tcp.read(&mut self.incoming[self.in_len..]).await?;
+        self.in_len += n;
+        Ok(n > 0)
+    }
+
+    /// Copy decrypted data out: how much was copied.
+    fn take_plain(&mut self, buf: &mut [u8]) -> usize {
+        let avail = &self.plain[self.plain_at..];
+        let n = avail.len().min(buf.len());
+        buf[..n].copy_from_slice(&avail[..n]);
+        self.plain_at += n;
+        if self.plain_at == self.plain.len() {
+            self.plain.clear();
+            self.plain_at = 0;
+        }
+        n
+    }
+
+    /// Process received records; `closed` if the server said goodbye.
+    async fn pump(&mut self) -> Result<(), NetError> {
+        match self.process(None).await {
+            Ok(Step::Closed) => self.closed = true,
+            Ok(_) => {}
+            Err(e) => {
+                ::log::warn!("tls: {e}");
+                return Err(NetError::Closed);
+            }
+        }
+        Ok(())
     }
 
     pub async fn write_all(&mut self, data: &[u8]) -> Result<(), NetError> {
-        let mut off = 0;
-        while off < data.len() {
-            off += self
-                .conn
-                .write(&data[off..])
-                .await
-                .map_err(|_| NetError::Closed)?;
+        match self.process(Some(data)).await {
+            Ok(Step::Ready) => Ok(()),
+            Ok(_) => Err(NetError::Closed),
+            Err(e) => {
+                ::log::warn!("tls: {e}");
+                Err(NetError::Closed)
+            }
         }
-        self.conn.flush().await.map_err(|_| NetError::Closed)
     }
 
-    /// Blocking read of the next decrypted data.
+    /// Blocking read of the next decrypted data (0: the session is closed).
     pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, NetError> {
-        self.conn.read(buf).await.map_err(|_| NetError::Closed)
+        loop {
+            if self.plain_at < self.plain.len() {
+                return Ok(self.take_plain(buf));
+            }
+            if self.closed {
+                return Ok(0);
+            }
+            self.pump().await?;
+            if self.plain_at < self.plain.len() || self.closed {
+                continue;
+            }
+            if !self.receive().await? {
+                self.closed = true;
+            }
+        }
     }
 
     /// The bit signalled when data arrives (see `TcpStream::bit`).
     pub fn bit(&self) -> usize {
-        self.probe.bit()
+        self.tcp.bit()
     }
 
-    /// Read only if the socket has data waiting (a TLS record arrives as a
-    /// unit, so the read completes promptly). `buf` should be >= 16 KiB.
+    /// Read only if data is waiting, decrypted or on the socket: Ok(None)
+    /// when there is nothing. A TLS record arrives as a unit, so a read
+    /// completes promptly.
     pub async fn try_read(&mut self, buf: &mut [u8]) -> Result<Option<usize>, NetError> {
-        if !self.probe.readable() {
-            return Ok(None);
+        loop {
+            if self.plain_at < self.plain.len() {
+                return Ok(Some(self.take_plain(buf)));
+            }
+            if self.closed {
+                return Err(NetError::Closed);
+            }
+            self.pump().await?;
+            if self.plain_at < self.plain.len() || self.closed {
+                continue;
+            }
+            if !self.tcp.readable() {
+                return Ok(None);
+            }
+            if !self.receive().await? {
+                self.closed = true;
+            }
         }
-        self.read(buf).await.map(Some)
     }
+}
+
+async fn transmit(tcp: &mut TcpStream, data: &[u8]) -> Result<(), rustls::Error> {
+    tcp.write_all(data)
+        .await
+        .map_err(|_| rustls::Error::General("the connection closed".into()))
+}
+
+fn encode_error(e: EncodeError) -> rustls::Error {
+    rustls::Error::General(alloc::format!("encoding a handshake record: {e}"))
+}
+
+fn encrypt_error(e: EncryptError) -> rustls::Error {
+    rustls::Error::General(alloc::format!("encrypting: {e}"))
 }

@@ -1,2 +1,8 @@
 [alias]
 xtask = "run --quiet --package xtask --"
+
+# The user-space programs' getrandom (TLS, through the RustCrypto provider)
+# gets its bytes from the kernel: libs/netc/src/tls.rs defines the "custom"
+# backend.
+[target.armv5te-touchos]
+rustflags = ["--cfg", 'getrandom_backend="custom"']

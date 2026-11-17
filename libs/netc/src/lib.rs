@@ -1,6 +1,6 @@
 //! Client of the net server (the "net" capability): TCP connections whose
 //! data flows through shared memory, DNS, and network status. With the
-//! `tls` feature also TLS 1.3 (embedded-tls) on top of those connections;
+//! `tls` feature also TLS 1.2 and 1.3 (rustls) on top of those connections;
 //! a program that uses it also needs the "cacerts" capability (the roots).
 
 #![no_std]
