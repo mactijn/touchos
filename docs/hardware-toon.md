@@ -179,7 +179,7 @@ FEC (`0x1002b000`, IRQ 50) in MII mode, with a 100 Mbit/s PHY. Stock Linux calls
   - PD0–PD16 carry the MII signals through the GPIO module (GIUS set, AIN for outputs, AOUT for inputs), except MDIO on PD8, which is an alternate function (GPR);
   - **TX_EN is PF23** (GPIO mode, output from AIN), not a port D pin. Without it the FEC "sends" (descriptors complete, EIR shows TXF) but nothing reaches the wire, while receiving works;
   - the PHY's reset is PA25, active low.
-- **Measured** (a switched LAN): the first DHCP DISCOVER after link-up is lost every time, so the 4 s retry is what counts. TLS to Home Assistant takes about 1.18 s, certificate verified, on the ARM926 at 400 MHz. The web page answers in 30–40 ms.
+- **Measured** (a switched LAN): the first DHCP DISCOVER after link-up is lost every time, so the 4 s retry is what counts. TLS to Home Assistant takes about 0.55 s, certificate verified, on the ARM926 at 400 MHz (rustls with the RustCrypto provider; embedded-tls took 1.1–1.2 s). The web page answers in 30–40 ms.
 - **A cable re-plug can be simulated over JTAG:** write the PHY's BMCR through MMFR. `mww phys 0x1002b040 0x58020800` powers it down (link down); `0x58021200` restarts autonegotiation (link up).
 
 ## Other
