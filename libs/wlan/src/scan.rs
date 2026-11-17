@@ -85,6 +85,27 @@ pub struct Network {
     pub group_cipher: Option<[u8; 4]>,
     /// Does the RSN element offer pairwise CCMP and AKM PSK?
     pub ccmp_psk: bool,
+    /// An 802.11n access point (HT Capabilities and Operation elements).
+    pub ht: Option<Ht>,
+    /// It does WMM (QoS): the WMM Information or Parameter element.
+    pub wmm: bool,
+    /// The ERP element's Use_Protection: 802.11b stations are about, so
+    /// OFDM (and HT) frames need protection by CCK frames.
+    pub erp_protection: bool,
+}
+
+/// What an 802.11n access point says about itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Ht {
+    /// It receives a short guard interval at 20 MHz (HT Capabilities).
+    pub sgi20: bool,
+    /// The MCS 0-7 it receives (bit n = MCS n).
+    pub rx_mcs: u8,
+    /// The HT Operation element's protection mode (0: none, 1: non-member,
+    /// 2: 20 MHz, 3: non-HT mixed); 0 without the element.
+    pub protection: u8,
+    /// Stations that can't receive HT greenfield frames are associated.
+    pub non_greenfield: bool,
 }
 
 /// Beacon / probe response -> network description.
@@ -103,13 +124,28 @@ pub fn parse_beacon(f: &RxFrame) -> Option<Network> {
     let beacon_interval = u16::from_le_bytes([d[32], d[33]]);
     let (mut ssid_raw, mut rates, mut dtim_period) = (Vec::new(), Vec::new(), 1u8);
     let (mut group_cipher, mut ccmp_psk) = (None, false);
+    let (mut ht, mut ht_caps, mut wmm, mut erp_protection) = (Ht::default(), false, false, false);
     let mut ssid = String::new();
     let mut channel = f.channel;
     let (mut rsn, mut wpa) = (false, false);
     for (id, body) in ies(&d[36..]) {
         let len = body.len();
         match id {
-            1 | 50 => rates.extend_from_slice(body),
+            // Without BSS membership selectors (0xff: "HT only"): they
+            // are no rates, and are not to be echoed back.
+            1 | 50 => rates.extend(body.iter().filter(|&&r| crate::rates::is_legacy(r))),
+            42 if len >= 1 => erp_protection = body[0] & 0x02 != 0,
+            45 if len >= 26 => {
+                ht_caps = true;
+                ht.sgi20 = body[0] & 0x20 != 0;
+                ht.rx_mcs = body[3];
+            }
+            61 if len >= 22 => {
+                ht.protection = body[2] & 0x03;
+                ht.non_greenfield = body[2] & 0x04 != 0;
+            }
+            // WMM Information (subtype 0) or Parameter (1) element.
+            221 if body.len() >= 6 && body[..4] == [0x00, 0x50, 0xf2, 0x02] && body[4] <= 1 => wmm = true,
             5 if len >= 2 => dtim_period = body[1].max(1), // TIM: count, period, ...
             48 if len >= 8 => {
                 rsn = true;
@@ -167,6 +203,9 @@ pub fn parse_beacon(f: &RxFrame) -> Option<Network> {
         rates,
         group_cipher,
         ccmp_psk,
+        ht: ht_caps.then_some(ht),
+        wmm,
+        erp_protection,
     })
 }
 
@@ -196,6 +235,35 @@ mod tests {
             channel: 1,
             crypto: RxCrypto::None,
         }
+    }
+
+    #[test]
+    fn ht_and_wmm() {
+        let n = parse_beacon(&beacon(1, -50)).unwrap();
+        assert_eq!((n.ht, n.wmm, n.erp_protection), (None, false, false));
+        let mut b = beacon(1, -50);
+        // An "n only" access point: the HT membership selector in its rates.
+        b.data.extend_from_slice(&[50, 2, 0x6c, 0xff]);
+        b.data.extend_from_slice(&[42, 1, 0x02]);
+        let mut caps = [0u8; 28];
+        caps[..2].copy_from_slice(&[45, 26]);
+        caps[2] = 0x6c; // SGI 20 and 40, SM power save disabled
+        caps[5] = 0xff; // MCS 0-7
+        caps[6] = 0xff; // MCS 8-15
+        b.data.extend_from_slice(&caps);
+        let mut op = [0u8; 24];
+        op[..3].copy_from_slice(&[61, 22, 6]);
+        op[4] = 0x07; // mixed mode protection, non-greenfield stations
+        b.data.extend_from_slice(&op);
+        b.data.extend_from_slice(&[221, 7, 0x00, 0x50, 0xf2, 0x02, 0x00, 0x01, 0x00]);
+        let n = parse_beacon(&b).unwrap();
+        assert_eq!(n.ht, Some(Ht { sgi20: true, rx_mcs: 0xff, protection: 3, non_greenfield: true }));
+        assert!(n.wmm && n.erp_protection);
+        assert_eq!(n.rates, [0x82, 0x84, 0x8b, 0x96, 0x6c]);
+        // HT Operation without HT Capabilities is no HT access point.
+        let mut b = beacon(1, -50);
+        b.data.extend_from_slice(&op);
+        assert_eq!(parse_beacon(&b).unwrap().ht, None);
     }
 
     #[test]
