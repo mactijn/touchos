@@ -92,14 +92,12 @@ The RT5370 runs as a WPA2 station; these are the loose ends.
 - **Throughput:** uploads run at about 216 KB/s, a third of a download (about 700 KB/s). Neither CCMP nor process switches turned out to be the limit for downloads. Received frames are decrypted in software: the chip can decrypt them, but it strips the packet number, so there would be no replay check. Find where the time goes first.
 
 ## 802.11n (HT)
-The RT5370 connects as a legacy 802.11g station.
-
-- **Why:** an access point in "n only" mode refuses a legacy station. HT also gives higher rates and better range.
-- **What it needs:**
-  - HT capability IEs in the association request;
-  - QoS data frames;
-  - HT rates: the TXWI PHYMODE/MCS fields, and rate control that knows them;
-  - optionally A-MPDU/block-ack.
+- **Today:** the station associates as an 802.11n (HT20, MCS 0–7) and WMM station where the access point is one (`wifi.ht`, on by default): HT Capabilities and WMM in the association request, QoS data (TID 0, best effort), HT rates with AMRR over MCS 0–7 and the short guard interval, the HT fallback and protection registers, A-MSDUs and per-TID replay counters on receive. Block-ack agreements are refused, so no A-MPDUs.
+- **Open:**
+  - Run it on the Toon: an access point in mixed and in "n only" mode, the throughput and retries against 802.11g, and a monitor-mode capture of the QoS frames and the ADDBA refusal ([#6](https://github.com/mactijn/touchos/issues/6)).
+  - A-MPDU: receiving needs a block-ack agreement, a reorder buffer before the replay check, and the chip's BA session table; sending, the TXWI AMPDU fields and MAX_LEN_CFG.
+  - The access point's WMM parameters (EDCA) are not applied: the chip's defaults are the standard best-effort values, and everything goes as best effort.
+  - The HT protection mode comes from the beacon at join; later changes (an 802.11g station arriving) aren't followed.
 
 ## Fewer wake-ups
 Drivers get interrupts (`IRQ_CLAIM`/`IRQ_BIND`/`IRQ_ACK`) and servers wait for events instead of polling on timers; idle, the Toon runs about 50 process switches a second. The kernel logs who was switched to most every minute (`runs/s:`). What's left:

@@ -141,7 +141,8 @@ Which `imx-i2c` instance Linux numbers `i2c-0` follows the iomem order above; ch
   - `rt3071.bin` loads with a valid CRC and reads back; the MCU is ready after 14 ms.
   - The autorun check (DEVICE_MODE 0x11, IN) times out: this module doesn't answer it. That costs about 5 s of the init.
   - A passive scan of channels 1–13 takes 1.6 s. While scanning, MAC_SYS_CTRL is `0x8`: RX on, TX off.
-- **Wi-Fi under touchos:** the RT5370 as a WPA2 station (legacy 802.11g rates).
+- **Wi-Fi under touchos:** the RT5370 as a WPA2 station. The measurements below are with legacy 802.11g rates.
+  - 802.11n (HT20, MCS 0–7, `wifi.ht`) is built but not yet run on the Toon. What it relies on: TXWI PHY mode 2 (HT mixed) with the MCS in the low bits and bit 8 for the short guard interval; 2 bytes of L2PAD after a 26-byte QoS header, which TXWI's length leaves out (Linux's `REQUIRE_L2PAD`); HT_FBK_CFG0 `0x65432100`; MM20/GF20_PROT_CFG with RTS/CTS at OFDM 24 Mbit/s (`0x4004`) in mixed mode.
   - Management frames at 1 Mbit/s; data rates chosen by AMRR, as in OpenBSD. A step down waits for more than 10 transmissions, so it doesn't react to samples like 1 retry in 2 frames. In use the rate moves between 18 and 36 Mbit/s.
   - Authentication and association are ACKed at the first try; the 4-way handshake and the group key complete.
   - With the Ethernet PHY down or the cable unplugged, `net` moves to Wi-Fi: DHCP in about 1 s, TLS to Home Assistant in 1.6 s. After unplugging the cable, HA is connected again about 8 s later.
