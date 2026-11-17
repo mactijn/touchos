@@ -8,6 +8,7 @@ use core::fmt;
 use touchos_rt::{exec, time};
 use touchos_usb::{Device, HostController, UsbError};
 use touchos_wlan::Mac;
+use touchos_wlan::rates::Rate;
 
 use crate::io::{Io, delay};
 use crate::regs::*;
@@ -75,6 +76,19 @@ pub struct Join {
     pub short_slot: bool,
     /// The BSS has OFDM rates (802.11g), not only CCK (802.11b).
     pub ofdm: bool,
+    /// 802.11b stations are about (the ERP element's Use_Protection).
+    pub erp_protection: bool,
+    /// Joining as an 802.11n station.
+    pub ht: Option<HtJoin>,
+}
+
+/// What the chip needs for HT frames to the BSS.
+#[derive(Clone, Copy, Debug)]
+pub struct HtJoin {
+    /// Send with the short guard interval (the access point receives it).
+    pub sgi: bool,
+    /// The HT Operation element's protection mode (0-3).
+    pub protection: u8,
 }
 
 /// The chip's TX statistics since they were last read (the registers
@@ -602,6 +616,21 @@ impl Rt2800 {
         )
         .await?;
         io.write(LG_FBK_CFG1, 2 << 12 | 1 << 8).await?;
+        // HT: MCS n -> n - 1 down to MCS 0 (Linux's values; MCS 8-15 for
+        // completeness, one stream has none).
+        io.write(HT_FBK_CFG0, 0x6543_2100).await?;
+        io.write(HT_FBK_CFG1, 0xedcb_a988).await?;
+        // HT protection (Linux's rt2800_config_ht_opmode, for 20 MHz):
+        // RTS/CTS before HT frames while the access point says non-HT
+        // stations are about (non-member or mixed mode), at OFDM 24 Mbit/s,
+        // or at CCK 11 Mbit/s when 802.11b stations are too. Greenfield
+        // (never sent) is protected alike.
+        let protect = j.ht.is_some_and(|h| matches!(h.protection, 1 | 3));
+        let rate = if j.erp_protection { 0x0003 } else { 0x4004 };
+        for reg in [MM20_PROT_CFG, GF20_PROT_CFG] {
+            let v = io.read(reg).await? & !(PROT_RATE_MASK | PROT_CTRL_MASK);
+            io.write(reg, v | rate | if protect { PROT_CTRL_RTS_CTS } else { 0 }).await?;
+        }
         read_tx_counters(&mut io).await?;
         self.bss = Some(*j);
         Ok(())
@@ -701,19 +730,22 @@ impl Rt2800 {
         }
     }
 
-    /// Send an 802.11 frame (header and body, no FCS) at `rate` (500
-    /// kbit/s units), waiting while all TX buffers are in flight. `ack`:
-    /// it is unicast, the chip waits for the ACK and retries. The chip
-    /// numbers it: see `tx::Tx::send`. `ccmp`: the chip encrypts it with
-    /// the pairwise key ([`Rt2800::set_pairwise_key`]) and this CCMP
-    /// header.
+    /// Send an 802.11 frame (header and body, no FCS) at `rate` (an HT
+    /// rate only once joined as an HT station), waiting while all TX
+    /// buffers are in flight. `ack`: it is unicast, the chip waits for the
+    /// ACK and retries. We number it (see `txwi::write`): one counter for
+    /// every frame, QoS data included (802.11 has one per TID for QoS
+    /// data, but without block-ack agreements a receiver only compares a
+    /// frame with the one before it from us). `ccmp`: the chip encrypts
+    /// it with the pairwise key ([`Rt2800::set_pairwise_key`]) and this
+    /// CCMP header.
     #[allow(clippy::too_many_arguments)]
     pub async fn send<H: HostController>(
         &mut self,
         hc: &mut H,
         dev: &mut Device<H>,
         frame: &[u8],
-        rate: u8,
+        rate: Rate,
         ack: bool,
         ccmp: Option<[u8; 8]>,
     ) -> Result<()> {
@@ -721,6 +753,7 @@ impl Rt2800 {
             return Err(Error::Chip("no pairwise key in the chip"));
         }
         let short_preamble = self.bss.is_some_and(|b| b.short_preamble);
+        let sgi = self.bss.and_then(|b| b.ht).is_some_and(|h| h.sgi);
         let seq = self.seq;
         let Some(tx) = self.tx.as_mut() else { return Err(Error::Chip("brought up receive only")) };
         loop {
@@ -730,7 +763,7 @@ impl Rt2800 {
             if tx.stalled {
                 clear_halt(hc, dev, tx).await;
             }
-            match tx.send(hc, dev, frame, seq, rate, short_preamble, ack, ccmp) {
+            match tx.send(hc, dev, frame, seq, rate, short_preamble, sgi, ack, ccmp) {
                 Ok(()) => break,
                 Err(tx::TxError::Full) => {
                     if tx.oldest_ms().is_some_and(|ms| ms > tx::TX_TIMEOUT_MS) {

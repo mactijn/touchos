@@ -99,15 +99,18 @@ pub trait Radio {
     /// from now on frames from it are received.
     async fn join(&mut self, bss: &Network) -> Result<()>;
 
-    /// The access point accepted our association (AID `aid`).
-    async fn associated(&mut self, aid: u16) -> Result<()>;
+    /// The access point accepted our association (AID `aid`); `ht`: as an
+    /// 802.11n station (it had `Network::ht`, and took us as a QoS
+    /// station), so data may go at HT rates.
+    async fn associated(&mut self, aid: u16, ht: bool) -> Result<()>;
 
     /// Send a management frame (24-byte header + body) to the BSS.
     async fn send_mgmt(&mut self, frame: &[u8]) -> Result<()>;
 
-    /// Send a data frame (24-byte header + body). With `key`, Protected is
-    /// set and the chip adds the CCMP header and MIC; without, the frame is
-    /// sent as it is (plain, or already encrypted by the host).
+    /// Send a data frame (header + body: 24 bytes, or 26 for QoS data).
+    /// With `key`, Protected is set and the chip adds the CCMP header and
+    /// MIC; without, the frame is sent as it is (plain, or already
+    /// encrypted by the host).
     async fn send_data(&mut self, frame: &[u8], key: Option<TxKey<'_>>) -> Result<()>;
 
     /// The frames received since the last call (none: an empty Vec).

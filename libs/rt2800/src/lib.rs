@@ -32,6 +32,11 @@
 //! sends and receives frames as they are, except that it can encrypt
 //! the frames we send with the pairwise key (`Rt2800::set_pairwise_key`).
 //!
+//! **802.11g or 802.11n.** Frames go at a legacy rate or, joined as an HT
+//! station, at an HT MCS (20 MHz, one stream; [`txwi::phy_word`]). Linux's
+//! rt2800 is where the HT facts come from: the padding after a QoS header,
+//! the HT fallback and protection registers' values.
+//!
 //! Everything is polled over USB vendor requests on EP0 (registers) and
 //! bulk-IN transfers (frames); the chip has its own 8051 that needs the
 //! `rt3071.bin` firmware.
@@ -59,6 +64,7 @@ pub mod rx;
 pub mod rxframe;
 #[cfg(target_os = "none")]
 pub mod tx;
+pub mod txwi;
 
 #[cfg(target_os = "none")]
 pub use chip::*;
