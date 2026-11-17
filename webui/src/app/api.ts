@@ -79,6 +79,8 @@ export interface Status {
   uptime_s: number;
   clock_set: boolean;
   ip: string | null;
+  /** `<name>.local` (mDNS). */
+  hostname: string | null;
   ha: { connected: boolean; entities: number };
   config: { version: number | null; problems: string[] };
 }

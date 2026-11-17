@@ -422,6 +422,7 @@ fn status() -> Json {
     let ip = net
         .and_then(|s| s.ipv4)
         .map(|(ip, p)| format!("{}.{}.{}.{}/{p}", ip[0], ip[1], ip[2], ip[3]));
+    let hostname = net.map(|s| s.hostname).filter(|h| !h.is_empty()).map(|h| format!("{h}.local"));
     let ha = ha_snapshot();
     let cfg = client().and_then(|c| c.status().ok());
     let arg = |k: &str| touchos_rt::arg(k).filter(|v| *v != "-");
@@ -432,6 +433,7 @@ fn status() -> Json {
         "uptime_s": time::now_ms() / 1000,
         "clock_set": time::unix_now() > 1_600_000_000,
         "ip": ip,
+        "hostname": hostname,
         "ha": {
             "connected": ha.as_ref().is_some_and(|h| h.connected),
             "entities": ha.as_ref().map_or(0, |h| h.entities.len()),
