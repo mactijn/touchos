@@ -41,6 +41,8 @@ impl HomeAssistant {
 pub struct Wifi {
     pub ssid: Option<String>,
     pub psk: Option<String>,
+    /// Associate as an 802.11n (and WMM) station where the access point is one.
+    pub ht: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -270,6 +272,7 @@ impl Config {
             wifi: Wifi {
                 ssid: string("wifi.ssid"),
                 psk: string("wifi.psk"),
+                ht: v.get("wifi.ht").and_then(Value::as_bool).unwrap_or(true),
             },
             display: Display {
                 brightness: int("display.brightness") as u8,
@@ -345,6 +348,7 @@ mod tests {
         assert!(!c.debug.log_pin);
         assert!(c.web.enabled);
         assert_eq!(c.web.port, 80);
+        assert!(c.wifi.ht);
         assert!(c.tiles.is_empty());
     }
 

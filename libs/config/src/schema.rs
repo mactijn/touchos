@@ -202,6 +202,14 @@ pub static FIELDS: &[Field] = &[
         "The Wi-Fi password (8-63 characters).",
         Restart(Service::Wifi),
     ),
+    f(
+        "wifi.ht",
+        Kind::Bool,
+        D::Bool(true),
+        "802.11n",
+        "Connect as an 802.11n (and WMM) device where the access point is one: faster, and needed for an access point in \"n only\" mode. Off: as an 802.11g device.",
+        Restart(Service::Wifi),
+    ),
     // [display]
     f(
         "display.brightness",
