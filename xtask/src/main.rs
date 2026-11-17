@@ -5,7 +5,8 @@
 //! over JTAG), nand.rs (the Toon's NAND: flashing, booting from it, update
 //! bundles), initrd.rs (the servers in the initrd), update.rs (the signing
 //! key and signatures), config.rs (which touchos.toml a build carries),
-//! cacerts.rs (the TLS roots, from the distro's CA bundle).
+//! cacerts.rs (the TLS roots, from the distro's CA bundle), tzdata.rs
+//! (the time zones' rules, from the distro's tzdata).
 
 mod arm;
 mod build_id;
@@ -17,6 +18,7 @@ mod initrd;
 mod nand;
 mod pair;
 mod selftest;
+mod tzdata;
 mod update;
 mod webui;
 
@@ -87,6 +89,10 @@ fn main() -> Result<()> {
         },
         Some("keygen") => update::keygen()?,
         Some("cacerts") => cacerts::run(
+            args.get(1).filter(|a| !a.starts_with("--")).map(String::as_str),
+            flag("--check"),
+        )?,
+        Some("tzdata") => tzdata::run(
             args.get(1).filter(|a| !a.starts_with("--")).map(String::as_str),
             flag("--check"),
         )?,
