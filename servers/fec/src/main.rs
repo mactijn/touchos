@@ -56,6 +56,26 @@ const BD_L: u32 = 0x0800; // last in frame
 const BD_TC: u32 = 0x0400; // tx: append the CRC
 const RX_ERRORS: u32 = 0x0037; // LG, NO, CR, OV, TR
 
+/// 224.0.0.251's Ethernet address.
+const MDNS_GROUP: [u8; 6] = [0x01, 0x00, 0x5e, 0x00, 0x00, 0xfb];
+
+/// Where a group address's bit is in the FEC's 64-bit hash filter (as
+/// Linux's fec driver computes it): the top 6 bits of the address's
+/// CRC-32 (reflected, not inverted) pick one of 64 bits; GAUR holds 32-63
+/// and GALR 0-31. Frames to other groups with the same hash get through
+/// too, and smoltcp drops those.
+fn group_hash_bit(mac: [u8; 6]) -> (usize, u32) {
+    let mut crc = 0xffff_ffffu32;
+    for mut b in mac {
+        for _ in 0..8 {
+            crc = (crc >> 1) ^ if (crc ^ b as u32) & 1 != 0 { 0xedb8_8320 } else { 0 };
+            b >>= 1;
+        }
+    }
+    let hash = crc >> 26;
+    if hash >= 32 { (GAUR, hash - 32) } else { (GALR, hash) }
+}
+
 const RX_N: usize = 16;
 const TX_N: usize = 8;
 const BUF: usize = 1536; // a multiple of 16, as EMRBR wants
@@ -129,6 +149,9 @@ impl Fec {
         for r in [IAUR, IALR, GAUR, GALR] {
             self.regs.w32(r, 0);
         }
+        // Multicast: only the mDNS group (224.0.0.251).
+        let (reg, bit) = group_hash_bit(MDNS_GROUP);
+        self.regs.w32(reg, 1 << bit);
         self.regs.w32(RCR, 1518 << 16 | 1 << 2); // max frame, MII mode
         self.regs.w32(TCR, 0);
         self.regs.w32(EMRBR, BUF as u32);
