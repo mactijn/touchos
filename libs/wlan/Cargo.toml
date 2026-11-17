@@ -12,10 +12,10 @@ bench = false
 
 [dependencies]
 log.workspace = true
-sha1 = { version = "0.10", default-features = false }
-hmac = { version = "0.12", default-features = false }
-pbkdf2 = { version = "0.12", default-features = false, features = ["hmac"] }
-aes = { version = "0.8", default-features = false }
+sha1 = { version = "0.11", default-features = false }
+hmac = { version = "0.13", default-features = false }
+pbkdf2 = { version = "0.13", default-features = false, features = ["hmac"] }
+aes = { version = "0.9", default-features = false }
 
 # The station flow needs the runtime (timers, randomness) and the network
 # link; the frame and crypto code doesn't, so it can be tested on the host.
