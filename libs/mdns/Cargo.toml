@@ -1,0 +1,10 @@
+[package]
+name = "touchos-mdns"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+description = "An mDNS responder (RFC 6762) with DNS-SD services (RFC 6763), without I/O: answers for our name and services, probing, announcing and name conflicts"
+
+[lib]
+bench = false
