@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 publish.workspace = true
 license.workspace = true
-description = "The network stack (smoltcp): DHCP, DNS, TCP for other processes, NTP, UDP log"
+description = "The network stack (smoltcp): DHCP, DNS, TCP for other processes, mDNS, NTP, UDP log"
 
 [[bin]]
 name = "net"
@@ -17,5 +17,6 @@ touchos-rt = { path = "../../libs/rt" }
 touchos-abi = { path = "../../libs/abi" }
 touchos-proto = { path = "../../libs/proto" }
 touchos-config = { path = "../../libs/config" }
+touchos-mdns = { path = "../../libs/mdns" }
 log.workspace = true
-smoltcp = { version = "0.14", default-features = false, features = ["alloc", "medium-ethernet", "proto-ipv4", "proto-dhcpv4", "proto-dns", "socket-tcp", "socket-udp", "socket-dhcpv4", "socket-dns", "auto-icmp-echo-reply"] }
+smoltcp = { version = "0.14", default-features = false, features = ["alloc", "medium-ethernet", "proto-ipv4", "proto-dhcpv4", "proto-dns", "socket-tcp", "socket-udp", "socket-dhcpv4", "socket-dns", "multicast", "auto-icmp-echo-reply"] }

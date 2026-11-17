@@ -2,7 +2,9 @@
 //! (through shared-memory rings that init sets up), with DHCP and DNS. Other
 //! processes get TCP connections whose data flows through shared memory
 //! (see `touchos_proto::net`); they never see the stack itself. It also
-//! sets the clock from NTP and ships the kernel log to `debug.log_host`.
+//! answers to `<net.hostname>.local` and announces the services others
+//! register (mDNS), sends the host name to DHCP (option 12), sets the clock
+//! from NTP and ships the kernel log to `debug.log_host`.
 //!
 //! Capabilities: "ep" (our endpoint), "wired_rx"/"wired_tx"/"wired_state" and
 //! "wlan_rx"/... (frames and link state of each network driver), "status" (the board for the dashboard),
@@ -13,11 +15,14 @@
 
 extern crate alloc;
 
+mod mdns;
 mod ntp;
 mod service;
 
 use service::{Conn, Listener, handle, pump_conns, pump_listeners};
 
+use alloc::boxed::Box;
+use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
 use log::{info, warn};
@@ -26,9 +31,10 @@ use smoltcp::phy::{self, DeviceCapabilities, Medium};
 use smoltcp::socket::{dhcpv4, dns, udp};
 use smoltcp::time::Instant;
 use smoltcp::wire::{
-    EthernetAddress, HardwareAddress, IpAddress, IpCidr, IpEndpoint, Ipv4Address, Ipv4Cidr,
+    DhcpOption, EthernetAddress, HardwareAddress, IpAddress, IpCidr, IpEndpoint, Ipv4Address,
+    Ipv4Cidr,
 };
-use touchos_proto::net::{self as proto, FRAME_SLOT, Link, Status};
+use touchos_proto::net::{self as proto, FRAME_SLOT, HostName, Link, Status};
 use touchos_rt::shm::{self, Board, Ring, Shared};
 use touchos_rt::{cap, exec, sys, time};
 
@@ -147,10 +153,23 @@ pub struct Net {
     /// The time servers DHCP named (option 42), for ntp.
     pub ntp_servers: Vec<Ipv4Address>,
     next_port: u16,
+    /// The name we want (`net.hostname` or the default); mDNS may have
+    /// added `-2` after a conflict.
+    host: String,
+    mdns: Option<mdns::Mdns>,
+}
+
+/// What a new interface starts with besides the MAC.
+struct Setup<'a> {
+    host: String,
+    /// DHCP option 12 with `host`.
+    dhcp_options: &'static [DhcpOption<'static>],
+    mdns: bool,
+    services: &'a [touchos_mdns::Service],
 }
 
 impl Net {
-    fn new(mac: [u8; 6], dev: &mut Frames) -> Net {
+    fn new(mac: [u8; 6], dev: &mut Frames, setup: Setup) -> Net {
         let config = Config::new(HardwareAddress::Ethernet(EthernetAddress(mac)));
         let iface = Interface::new(config, dev, now());
         let mut sockets = SocketSet::new(Vec::new());
@@ -164,7 +183,10 @@ impl Net {
         // Also ask for the network's time servers (option 42), and keep
         // the ACK to read them from (smoltcp parses only the rest).
         dhcp.set_parameter_request_list(&[1, 3, 6, DHCP_OPT_NTP]);
-        dhcp.set_receive_packet_buffer(alloc::boxed::Box::leak(vec![0u8; 1024].into_boxed_slice()));
+        dhcp.set_receive_packet_buffer(Box::leak(vec![0u8; 1024].into_boxed_slice()));
+        // Our name, so the router lists us by it (and may put it in its
+        // DNS). The client identifier (option 61) is smoltcp's own: the MAC.
+        dhcp.set_outgoing_options(setup.dhcp_options);
         let dhcp = sockets.add(dhcp);
         let dns = sockets.add(dns::Socket::new(&[], vec![None, None, None, None]));
         let mut log = udp::Socket::new(
@@ -173,6 +195,11 @@ impl Net {
         );
         let _ = log.bind(5556);
         let log_udp = sockets.add(log);
+        let mut iface = iface;
+        let mdns = setup
+            .mdns
+            .then(|| mdns::Mdns::start(&mut iface, &mut sockets, &setup.host, setup.services))
+            .flatten();
         Net {
             iface,
             sockets,
@@ -182,7 +209,14 @@ impl Net {
             ipv4: None,
             ntp_servers: Vec::new(),
             next_port: 49152,
+            host: setup.host,
+            mdns,
         }
+    }
+
+    /// The name we answer to now.
+    fn current_host(&self) -> &str {
+        self.mdns.as_ref().map_or(&self.host, |m| m.responder.host())
     }
 
     pub fn ephemeral_port(&mut self) -> u16 {
@@ -223,8 +257,14 @@ impl Net {
                 self.sockets
                     .get_mut::<dns::Socket>(self.dns)
                     .update_servers(&servers);
-                info!("DHCP: {address} gateway {router:?} dns {dns_servers:?} ntp {:?}", self.ntp_servers);
+                info!(
+                    "DHCP: {address} gateway {router:?} dns {dns_servers:?} ntp {:?} as {}",
+                    self.ntp_servers, self.host
+                );
                 self.ipv4 = Some(address);
+                if let Some(m) = &mut self.mdns {
+                    m.responder.set_ip(Some(address.address().octets()), time::now_ms());
+                }
             }
             Some(None) => {
                 if self.ipv4.is_some() {
@@ -233,6 +273,9 @@ impl Net {
                 self.iface.update_ip_addrs(|a| a.clear());
                 self.iface.routes_mut().remove_default_ipv4_route();
                 self.ipv4 = None;
+                if let Some(m) = &mut self.mdns {
+                    m.responder.set_ip(None, time::now_ms());
+                }
             }
             None => {}
         }
@@ -254,6 +297,39 @@ struct State {
     log_host: Option<IpEndpoint>,
     log_cursor: u64,
     system: Option<u32>,
+    /// `net.hostname`; None = the default for the MAC.
+    hostname: Option<String>,
+    /// `net.mdns`.
+    mdns: bool,
+    /// The services other processes registered: kept across link changes.
+    services: Vec<touchos_mdns::Service>,
+    /// DHCP option 12 for a name, made once per name (the DHCP socket
+    /// needs it to live forever).
+    dhcp_options: Option<(String, &'static [DhcpOption<'static>])>,
+}
+
+/// The name we want: `net.hostname`, or `touchos-` and the MAC's end.
+fn wanted_host(setting: Option<&str>, mac: [u8; 6]) -> String {
+    setting.map_or_else(|| proto::default_hostname(mac).as_str().into(), String::from)
+}
+
+/// DHCP option 12: host name.
+const DHCP_OPT_HOST_NAME: u8 = 12;
+
+fn dhcp_options(
+    cache: &mut Option<(String, &'static [DhcpOption<'static>])>,
+    host: &str,
+) -> &'static [DhcpOption<'static>] {
+    if let Some((h, o)) = cache.as_ref()
+        && h == host
+    {
+        return o;
+    }
+    let data: &'static [u8] = Box::leak(host.as_bytes().to_vec().into_boxed_slice());
+    let o: &'static [DhcpOption<'static>] =
+        Box::leak(vec![DhcpOption { kind: DHCP_OPT_HOST_NAME, data }].into_boxed_slice());
+    *cache = Some((host.into(), o));
+    o
 }
 
 /// All state lives here, used between awaits only.
@@ -276,6 +352,11 @@ fn status(st: &State) -> Status {
             .and_then(|n| n.ipv4)
             .map(|c| (c.address().octets(), c.prefix_len())),
         generation: st.generation,
+        hostname: st
+            .net
+            .as_ref()
+            .and_then(|n| HostName::new(n.current_host()))
+            .unwrap_or_default(),
     }
 }
 
@@ -330,7 +411,13 @@ async fn stack(link_bit: usize, tx_bit: usize, board: Option<Shared<Board>>) {
                 st.frames.active = now.map(|(i, _)| i);
                 st.mac = now.map(|(_, m)| m);
                 st.generation += 1;
-                st.net = st.mac.map(|m| Net::new(m, &mut st.frames));
+                st.net = None;
+                if let Some(m) = st.mac {
+                    let State { frames, hostname, mdns, services, dhcp_options: cache, .. } = st;
+                    let host = wanted_host(hostname.as_deref(), m);
+                    let setup = Setup { dhcp_options: dhcp_options(cache, &host), host, mdns: *mdns, services };
+                    st.net = Some(Net::new(m, frames, setup));
+                }
                 st.queries.clear();
                 match now {
                     Some((i, _)) => info!(
@@ -347,9 +434,11 @@ async fn stack(link_bit: usize, tx_bit: usize, board: Option<Shared<Board>>) {
                 Some(n) => {
                     n.iface.poll(now(), frames, &mut n.sockets);
                     n.dhcp();
+                    let mdns = n.mdns.as_mut().and_then(|m| m.pump(&mut n.sockets));
                     n.iface
                         .poll_delay(now(), &n.sockets)
                         .map_or(10, |d| d.total_millis())
+                        .min(mdns.unwrap_or(u64::MAX))
                 }
                 None => 100,
             };
@@ -414,7 +503,8 @@ fn main() {
     let tx_bit = exec::alloc_bit();
     let server = sys::notif_create().expect("notif_create");
 
-    let log_host = log_endpoint(&touchos_config::client::settings::get());
+    let cfg = touchos_config::client::settings::get();
+    let log_host = log_endpoint(&cfg);
 
     let state = State {
         frames: Frames {
@@ -433,6 +523,10 @@ fn main() {
         log_host,
         log_cursor: 0,
         system: cap("system"),
+        hostname: cfg.net.hostname.clone(),
+        mdns: cfg.net.mdns,
+        services: Vec::new(),
+        dhcp_options: None,
     };
     STATE.with(|s| *s = Some(state));
     exec::spawn(stack(link_bit, tx_bit, board));
@@ -460,7 +554,46 @@ async fn watch_settings(ntp_bit: usize) {
             let server = with(|st| st.server);
             let _ = sys::signal(server, ntp_bit);
         }
+        if new.net != old.net {
+            with(|st| apply_net_settings(st, &new.net));
+        }
     }
+}
+
+/// `net.hostname` and `net.mdns` changed. The connections stay up: DHCP
+/// isn't restarted (that would drop the address), so the router hears the
+/// new name at the next lease renewal; mDNS probes for it at once.
+fn apply_net_settings(st: &mut State, cfg: &touchos_config::Net) {
+    st.hostname = cfg.hostname.clone();
+    st.mdns = cfg.mdns;
+    let State { net: Some(n), mac: Some(mac), dhcp_options: cache, services, .. } = st else {
+        return;
+    };
+    let host = wanted_host(cfg.hostname.as_deref(), *mac);
+    if host != n.host {
+        let options = dhcp_options(cache, &host);
+        n.sockets.get_mut::<dhcpv4::Socket>(n.dhcp).set_outgoing_options(options);
+        if let Some(m) = &mut n.mdns {
+            m.set_host(&host);
+        }
+        info!("host name: {host} (DHCP sends it at the next lease renewal)");
+        n.host = host;
+    }
+    match (cfg.mdns, n.mdns.take()) {
+        (true, None) => {
+            n.mdns = mdns::Mdns::start(&mut n.iface, &mut n.sockets, &n.host, services);
+            if let (Some(m), Some(ip)) = (&mut n.mdns, n.ipv4) {
+                m.responder.set_ip(Some(ip.address().octets()), time::now_ms());
+            }
+            info!("mDNS on");
+        }
+        (false, Some(m)) => {
+            m.stop(&mut n.iface, &mut n.sockets);
+            info!("mDNS off");
+        }
+        (_, m) => n.mdns = m,
+    }
+    let _ = sys::signal(st.server, st.server_bits);
 }
 
 /// DHCP option 42: NTP servers, IPv4 addresses.

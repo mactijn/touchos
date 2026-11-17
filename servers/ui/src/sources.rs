@@ -157,6 +157,7 @@ pub mod net {
         Status {
             ipv4: None,
             generation: 0,
+            hostname: touchos_proto::net::HostName::EMPTY,
         },
     ));
 

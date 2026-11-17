@@ -1259,6 +1259,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "touchos-mdns"
+version = "0.1.0"
+
+[[package]]
 name = "touchos-nand"
 version = "0.1.0"
 
@@ -1390,6 +1394,7 @@ dependencies = [
  "smoltcp",
  "touchos-abi",
  "touchos-config",
+ "touchos-mdns",
  "touchos-proto",
  "touchos-rt",
 ]

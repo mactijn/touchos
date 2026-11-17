@@ -12,6 +12,91 @@ pub struct Status {
     pub ipv4: Option<([u8; 4], u8)>,
     /// Bumped whenever the interface is (re)created.
     pub generation: u32,
+    /// Our name on the network (without `.local`): `net.hostname`, or
+    /// [`default_hostname`], with `-2`, `-3`... after an mDNS conflict.
+    /// Empty while no link is up.
+    pub hostname: HostName,
+}
+
+/// A host name of at most 63 bytes (one DNS label), kept inline so that
+/// [`Status`] stays `Copy`.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct HostName {
+    len: u8,
+    bytes: [u8; 63],
+}
+
+impl HostName {
+    pub const EMPTY: HostName = HostName { len: 0, bytes: [0; 63] };
+
+    /// `None` if `s` is longer than 63 bytes.
+    pub fn new(s: &str) -> Option<HostName> {
+        let mut h = HostName::EMPTY;
+        h.bytes.get_mut(..s.len())?.copy_from_slice(s.as_bytes());
+        h.len = s.len() as u8;
+        Some(h)
+    }
+
+    pub fn as_str(&self) -> &str {
+        // Only ever made from a &str.
+        core::str::from_utf8(&self.bytes[..self.len as usize]).unwrap_or("")
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+}
+
+impl Default for HostName {
+    fn default() -> HostName {
+        HostName::EMPTY
+    }
+}
+
+impl core::fmt::Debug for HostName {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        core::fmt::Debug::fmt(self.as_str(), f)
+    }
+}
+
+impl core::fmt::Display for HostName {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl Serialize for HostName {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for HostName {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<HostName, D::Error> {
+        struct V;
+        impl serde::de::Visitor<'_> for V {
+            type Value = HostName;
+            fn expecting(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+                f.write_str("a host name of at most 63 bytes")
+            }
+            fn visit_str<E: serde::de::Error>(self, s: &str) -> Result<HostName, E> {
+                HostName::new(s).ok_or_else(|| E::invalid_length(s.len(), &self))
+            }
+        }
+        d.deserialize_str(V)
+    }
+}
+
+/// The name a panel has when `net.hostname` isn't set: `touchos-` and the
+/// last two bytes of its MAC address in hex (`touchos-1a2b`).
+pub fn default_hostname(mac: [u8; 6]) -> HostName {
+    let mut buf = *b"touchos-xxxx";
+    let hex = b"0123456789abcdef";
+    for (i, b) in mac[4..].iter().enumerate() {
+        buf[8 + 2 * i] = hex[(b >> 4) as usize];
+        buf[9 + 2 * i] = hex[(b & 15) as usize];
+    }
+    HostName::new(core::str::from_utf8(&buf).unwrap()).unwrap()
 }
 
 /// Bytes of the boards for a `Status` (net writes) and a driver's `Link`
@@ -46,6 +131,26 @@ pub mod req {
     /// data: listener id u32, bits u64 LE; caps[0]: our notification.
     /// → OK like CONNECT (a new connection) | PENDING (we'll be signalled).
     pub const ACCEPT: u32 = 6;
+    /// Announce a service over mDNS (DNS-SD) while net runs. data: postcard
+    /// [`super::Service`]. A service with the same type and port replaces
+    /// the earlier one (its owner was restarted). → OK.
+    pub const MDNS_REGISTER: u32 = 7;
+    /// Stop announcing a service. data: postcard [`super::Service`]; only
+    /// its type and port count. → OK.
+    pub const MDNS_UNREGISTER: u32 = 8;
+}
+
+/// A service announced over mDNS (DNS-SD, RFC 6763).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Service {
+    /// The service type: `_http._tcp`.
+    pub kind: alloc::string::String,
+    /// The instance name ("Kitchen panel"); empty = the host name, which
+    /// follows its renames.
+    pub instance: alloc::string::String,
+    pub port: u16,
+    /// TXT `key=value` strings (each at most 255 bytes).
+    pub txt: alloc::vec::Vec<alloc::string::String>,
 }
 
 pub const OK: u32 = 0;
@@ -130,5 +235,20 @@ impl Sock {
 
     pub fn request_close(&self) {
         self.h().close.store(1, Ordering::Release);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn host_names() {
+        assert_eq!(default_hostname([0, 0x0f, 0x11, 0x22, 0x1a, 0x2b]).as_str(), "touchos-1a2b");
+        let h = HostName::new("touchos-1a2b-2").unwrap();
+        let s = Status { ipv4: Some(([10, 0, 0, 5], 24)), generation: 3, hostname: h };
+        assert_eq!(crate::decode::<Status>(&crate::encode(&s)), Some(s));
+        assert!(HostName::new(&"a".repeat(64)).is_none());
+        assert!(HostName::new(&"a".repeat(63)).is_some());
     }
 }
