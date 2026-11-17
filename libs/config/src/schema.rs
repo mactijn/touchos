@@ -280,7 +280,7 @@ pub static FIELDS: &[Field] = &[
         Kind::HostName,
         D::None,
         "Host name",
-        "The panel's name on the network: http://<name>.local, and the name the router lists. Empty: touchos- and the last four hex digits of the MAC address.",
+        "The panel's name on the network: http://<name>.local, and the name the router lists. Empty: touchos- and the last six hex digits of the MAC address.",
         Live,
     ),
     f(
