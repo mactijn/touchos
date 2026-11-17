@@ -129,25 +129,31 @@ pub fn group_message(keys: &Keys, k: &KeyFrame) -> Option<(Gtk, Vec<u8>)> {
     Some((gtk, reply))
 }
 
+/// Replay counters: one per TID of QoS data and one (the last) for
+/// non-QoS data. A QoS access point numbers each TID's frames on its own
+/// (802.11 12.5.3.4.4), so voice and video frames may carry lower numbers
+/// than best-effort ones sent before them.
+const COUNTERS: usize = 17;
+
 /// The keys for received data frames, and the last packet number seen with
-/// each: a frame whose packet number isn't higher is a replay.
+/// each (per TID): a frame whose packet number isn't higher is a replay.
 pub struct RxKeys {
     mode: KeyMode,
     tk: Option<[u8; 16]>,
     gtk: Option<[u8; 16]>,
-    pairwise_pn: u64,
-    group_pn: u64,
+    pairwise_pn: [u64; COUNTERS],
+    group_pn: [u64; COUNTERS],
 }
 
 impl RxKeys {
     pub fn new(mode: KeyMode) -> RxKeys {
-        RxKeys { mode, tk: None, gtk: None, pairwise_pn: 0, group_pn: 0 }
+        RxKeys { mode, tk: None, gtk: None, pairwise_pn: [0; COUNTERS], group_pn: [0; COUNTERS] }
     }
 
     /// The keys of a completed handshake.
     pub fn install(&mut self, keys: &Keys) {
         self.tk = Some(keys.tk);
-        self.pairwise_pn = 0;
+        self.pairwise_pn = [0; COUNTERS];
         if let Some(g) = &keys.gtk {
             self.set_gtk(g);
         }
@@ -156,34 +162,43 @@ impl RxKeys {
     /// A new group key: frames with it count from its RSC.
     pub fn set_gtk(&mut self, g: &Gtk) {
         self.gtk = Some(g.key);
-        self.group_pn = g.rsc;
+        self.group_pn = [g.rsc; COUNTERS];
     }
 
-    /// A data frame for us (the caller has checked the addresses) as an
-    /// Ethernet frame: plain, decrypted by the chip (`crypto`), or
-    /// decrypted here: group frames, and everything unless the chip
-    /// decrypts unicast frames ([`KeyMode::Hardware`]). None for
-    /// a frame that fails its MIC, has no key, or is a replay; and, once the
-    /// keys are installed, for a plain frame other than EAPOL (anyone in
-    /// range can send those; EAPOL stays allowed, as Linux allows it, and
-    /// carries its own MIC).
-    pub fn open(&mut self, frame: &[u8], h: &Hdr, crypto: RxCrypto) -> Option<Vec<u8>> {
+    /// A data frame for us (the caller has checked the addresses) as
+    /// Ethernet frames (several from an A-MSDU): plain, decrypted by the
+    /// chip (`crypto`), or decrypted here: group frames, and everything
+    /// unless the chip decrypts unicast frames ([`KeyMode::Hardware`]).
+    /// None for a frame that fails its MIC, has no key, or is a replay;
+    /// and, once the keys are installed, for a plain frame other than EAPOL
+    /// (anyone in range can send those; EAPOL stays allowed, as Linux
+    /// allows it, and carries its own MIC).
+    pub fn open(&mut self, frame: &[u8], h: &Hdr, crypto: RxCrypto) -> Vec<Vec<u8>> {
+        self.open_inner(frame, h, crypto).unwrap_or_default()
+    }
+
+    fn open_inner(&mut self, frame: &[u8], h: &Hdr, crypto: RxCrypto) -> Option<Vec<Vec<u8>>> {
         if !h.protected() {
-            let eth = w::data_80211_to_eth(frame, 0, 0)?;
-            return (self.tk.is_none() || w::is_eapol(&eth)).then_some(eth);
+            let mut eth = w::data_80211_to_eth(frame, 0, 0);
+            if self.tk.is_some() {
+                eth.retain(|e| w::is_eapol(e));
+            }
+            return Some(eth);
         }
         let group = h.group();
+        let counter = h.tid.map_or(COUNTERS - 1, usize::from);
         match crypto {
             RxCrypto::Failed => None,
             RxCrypto::Decrypted { mic_len } => {
                 // The CCMP header is still there: check the PN against replays.
                 let pn = ccmp::pn(frame)?;
                 let last = if group { &mut self.group_pn } else { &mut self.pairwise_pn };
+                let last = &mut last[counter];
                 if pn <= *last {
                     return None;
                 }
                 *last = pn;
-                w::data_80211_to_eth(frame, 8, mic_len)
+                Some(w::data_80211_to_eth(frame, 8, mic_len))
             }
             RxCrypto::None => {
                 let (key, last) = if group {
@@ -193,13 +208,14 @@ impl RxKeys {
                 } else {
                     return None; // the chip should have decrypted it
                 };
+                let last = &mut last[counter];
                 let pn = ccmp::pn(frame)?;
                 if pn <= *last {
                     return None; // replay
                 }
                 let plain = ccmp::decrypt(key, frame)?;
                 *last = pn;
-                w::data_80211_to_eth(&plain, 0, 0)
+                Some(w::data_80211_to_eth(&plain, 0, 0))
             }
         }
     }
@@ -371,8 +387,16 @@ mod tests {
     /// A data frame from the access point: to us, or to the broadcast
     /// address; carrying an IPv4 payload.
     fn from_ap(group: bool) -> (Vec<u8>, Vec<u8>) {
+        from_ap_tid(group, None)
+    }
+
+    /// The same, as QoS data of a TID.
+    fn from_ap_tid(group: bool, tid: Option<u8>) -> (Vec<u8>, Vec<u8>) {
         let mut hdr = vec![0u8; 24];
-        hdr[0] = w::FC0_DATA;
+        if let Some(t) = tid {
+            hdr.extend_from_slice(&[t, 0]);
+        }
+        hdr[0] = if tid.is_some() { w::FC0_QOS_DATA } else { w::FC0_DATA };
         hdr[1] = w::FC1_FROM_DS;
         hdr[4..10].copy_from_slice(if group { &[0xff; 6] } else { &ME });
         hdr[10..16].copy_from_slice(&AP);
@@ -387,7 +411,25 @@ mod tests {
     }
 
     fn open(rx: &mut RxKeys, f: &[u8], crypto: RxCrypto) -> Option<Vec<u8>> {
-        rx.open(f, &Hdr::parse(f).unwrap(), crypto)
+        rx.open(f, &Hdr::parse(f).unwrap(), crypto).into_iter().next()
+    }
+
+    #[test]
+    fn replay_counters_per_tid() {
+        let mut rx = RxKeys::new(KeyMode::HardwareTx);
+        rx.install(&keys(0));
+        let qos = |tid: u8, pn: u64| {
+            let (hdr, body) = from_ap_tid(false, Some(tid));
+            ccmp::encrypt(&[3; 16], &hdr, pn, 0, &body)
+        };
+        assert!(open(&mut rx, &qos(0, 10), RxCrypto::None).is_some());
+        // Voice frames number on their own: a lower PN is no replay.
+        assert!(open(&mut rx, &qos(6, 3), RxCrypto::None).is_some());
+        assert!(open(&mut rx, &encrypted(&[3; 16], false, 2), RxCrypto::None).is_some());
+        // Within one TID it is.
+        assert_eq!(open(&mut rx, &qos(6, 3), RxCrypto::None), None);
+        assert_eq!(open(&mut rx, &qos(0, 9), RxCrypto::None), None);
+        assert!(open(&mut rx, &qos(0, 11), RxCrypto::None).is_some());
     }
 
     fn keys(gtk_rsc: u64) -> Keys {
