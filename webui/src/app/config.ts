@@ -29,6 +29,8 @@ export class Config {
   readonly loadError = signal<string | null>(null);
   /** Home Assistant entities: [id, friendly name]. */
   readonly entities = signal<Tile[]>([]);
+  /** The time zones the panel knows (IANA names), for the zone picker. */
+  readonly zones = signal<string[]>([]);
 
   async load(): Promise<void> {
     if (!this.schema()) {
@@ -45,6 +47,12 @@ export class Config {
   async loadEntities(): Promise<void> {
     const r = await this.api.get<Tile[]>('/api/ha/entities');
     if (r.data) this.entities.set([...r.data].sort((a, b) => a[0].localeCompare(b[0])));
+  }
+
+  async loadZones(): Promise<void> {
+    if (this.zones().length) return;
+    const r = await this.api.get<string[]>('/api/zones');
+    if (r.data) this.zones.set(r.data);
   }
 
   async save(patch: Patch): Promise<SaveOutcome> {

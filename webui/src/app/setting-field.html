@@ -78,6 +78,22 @@
           [placeholder]="placeholder()"
         />
       }
+      @case ('zone') {
+        <input
+          matInput
+          [id]="id()"
+          [formControl]="c"
+          [matAutocomplete]="zoneList"
+          [placeholder]="placeholder()"
+          spellcheck="false"
+          autocomplete="off"
+        />
+        <mat-autocomplete #zoneList="matAutocomplete">
+          @for (z of zones(c.value); track z) {
+            <mat-option [value]="z">{{ z }}</mat-option>
+          }
+        </mat-autocomplete>
+      }
       @default {
         <input
           matInput
