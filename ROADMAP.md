@@ -74,8 +74,8 @@ The panel runs one app at a time (`ui.app`): the Home Assistant dashboard, a the
   4. The thermostat app (`ui.app = "thermostat"`): the thermostat, a clock and the weather, no Home Assistant needed. Depends on the thermostat ([#19](https://github.com/mactijn/touchos/issues/19)) ([#28](https://github.com/mactijn/touchos/issues/28)).
 
 ## Time zones
-- **Today:** a fixed UTC offset (`display.utc_offset_minutes`) plus EU summer time or none (`display.dst`, `libs/civil`). Right for most of Europe, wrong for North America, the southern hemisphere, and every rule change.
-- **Steps:** `time.zone` as an IANA name, from a table of each zone's current POSIX TZ rule generated from tzdata (`cargo xtask tzdata`), with a POSIX TZ parser in `libs/civil`; `auto` takes Home Assistant's zone; the old fields stay as a fallback; a zone picker on the settings page ([#29](https://github.com/mactijn/touchos/issues/29)).
+- **Today:** `time.zone` is an IANA name (default UTC) or a POSIX TZ rule. `libs/civil` has a POSIX TZ parser and a table of every zone's current rule, made from the host's tzdata by `cargo xtask tzdata`; the settings page has a zone picker. `display.utc_offset_minutes` and `display.dst` are gone. Home Assistant is not a source of the zone.
+- **Open:** the table only holds each zone's current rule, so times before a zone's last rule change can come out wrong (only the clock uses it, so it doesn't matter yet). Regenerate it when tzdata changes: `cargo xtask check` warns when the host's tzdata differs.
 
 ## Monitoring
 The kernel's figures (switches, idle, free memory, the busiest threads) are only in the log, and no syscall lets user space read them.
