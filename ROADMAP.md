@@ -73,10 +73,6 @@ The panel runs one app at a time (`ui.app`): the Home Assistant dashboard, a the
   3. One `weather` board from a new `servers/weather`. It picks the source (Home Assistant's entity, or the internet through Open-Meteo), so the UI doesn't care. The internet source needs an HTTP client, and its server the "cacerts" capability from init, like `ha` ([#31](https://github.com/mactijn/touchos/issues/31)).
   4. The thermostat app (`ui.app = "thermostat"`): the thermostat, a clock and the weather, no Home Assistant needed. Depends on the thermostat ([#19](https://github.com/mactijn/touchos/issues/19)) ([#28](https://github.com/mactijn/touchos/issues/28)).
 
-## Time zones
-- **Today:** `time.zone` is an IANA name (default UTC) or a POSIX TZ rule. `libs/civil` has a POSIX TZ parser and a table of every zone's current rule, made from the host's tzdata by `cargo xtask tzdata`; the settings page has a zone picker. `display.utc_offset_minutes` and `display.dst` are gone. Home Assistant is not a source of the zone.
-- **Open:** the table only holds each zone's current rule, so times before a zone's last rule change can come out wrong (only the clock uses it, so it doesn't matter yet). Regenerate it when tzdata changes: `cargo xtask check` warns when the host's tzdata differs.
-
 ## Monitoring
 The kernel's figures (switches, idle, free memory, the busiest threads) are only in the log, and no syscall lets user space read them.
 
