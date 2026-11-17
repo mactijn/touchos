@@ -402,12 +402,24 @@ impl Responder {
         Packet { dest: Dest::Multicast, data: w.finish() }
     }
 
+    /// Before a new name: the old name's records with TTL 0 (§10.1). Those
+    /// are the host's own and those of each service whose instance is the
+    /// host name: under the new name that is another instance, and its PTR
+    /// is shared, so the new announcement doesn't flush the old one from
+    /// caches. A service with its own instance name keeps it; its new SRV
+    /// target replaces the old with the cache-flush bit.
     fn goodbye_host(&self) -> Packet {
         let mut w = Writer::new(0, FLAGS_RESPONSE);
-        if let Some(ip) = self.ip {
-            let mut a = self.a_record(ip);
-            a.ttl = 0;
-            w.record(1, &a);
+        // records(): the host's 3, then 3 per service, then the type PTRs.
+        for (i, (mut r, _)) in self.records().into_iter().enumerate() {
+            let old = match i.checked_sub(3) {
+                None => true,
+                Some(j) => self.services.get(j / 3).is_some_and(|s| s.instance.is_empty()),
+            };
+            if old && w.buf.len() + r.rdata.len() + 64 <= MAX_PACKET {
+                r.ttl = 0;
+                w.record(1, &r);
+            }
         }
         Packet { dest: Dest::Multicast, data: w.finish() }
     }

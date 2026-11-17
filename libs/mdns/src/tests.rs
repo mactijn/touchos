@@ -287,6 +287,26 @@ fn new_address_and_name() {
     assert_eq!(r.poll_at(), None);
 }
 
+#[test]
+fn new_name_says_goodbye_to_services_named_after_it() {
+    let mut r = Responder::new("touchos-1a2b");
+    r.add_service(http(), 0);
+    r.add_service(Service { kind: "_esphomelib._tcp".into(), instance: "panel".into(), port: 6053, txt: vec![] }, 0);
+    let t = ready(&mut r);
+    r.set_host("kitchen", t);
+    let m = answer_of(&r.poll(t).unwrap());
+    assert!(m.answers.iter().all(|a| a.ttl == 0));
+    let has = |name: &str, rtype| m.answers.iter().any(|a| a.rtype == rtype && name_eq(&a.name, &n(name)));
+    assert!(has("touchos-1a2b.local", TYPE_A));
+    // The instance named after the host: its PTR (shared), SRV and TXT.
+    assert!(has("_http._tcp.local", TYPE_PTR));
+    assert!(has("touchos-1a2b._http._tcp.local", TYPE_SRV));
+    assert!(has("touchos-1a2b._http._tcp.local", TYPE_TXT));
+    // One with its own name stays; nor does the service type go.
+    assert!(!has("_esphomelib._tcp.local", TYPE_PTR));
+    assert!(!has("_services._dns-sd._udp.local", TYPE_PTR));
+}
+
 fn ready_from(r: &mut Responder, mut now: u64) -> u64 {
     while let Some(at) = r.poll_at() {
         now = at.max(now);
