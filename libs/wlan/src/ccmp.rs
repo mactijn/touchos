@@ -3,7 +3,7 @@
 //! do it here); a soft-MAC leaves all of CCMP, both ways, to the host.
 
 use aes::Aes128;
-use aes::cipher::{BlockEncrypt, KeyInit, generic_array::GenericArray};
+use aes::cipher::{BlockCipherEncrypt, KeyInit};
 use alloc::vec::Vec;
 
 use crate::ieee80211::Hdr;
@@ -52,13 +52,13 @@ struct Ccm {
 impl Ccm {
     fn new(key: &[u8; 16]) -> Ccm {
         Ccm {
-            aes: Aes128::new(GenericArray::from_slice(key)),
+            aes: Aes128::new(&(*key).into()),
         }
     }
     fn enc(&self, b: &mut [u8; 16]) {
-        let mut g = GenericArray::clone_from_slice(b);
+        let mut g = aes::Block::from(*b);
         self.aes.encrypt_block(&mut g);
-        b.copy_from_slice(&g);
+        *b = g.into();
     }
     fn ctr_block(&self, nonce: &[u8; 13], i: u16) -> [u8; 16] {
         let mut a = [0u8; 16];
