@@ -80,11 +80,7 @@ impl State {
         };
         let cfg = Config::parse(&text).map(|(c, _)| c).unwrap_or_default();
         let unix = touchos_rt::time::unix_now();
-        let t = touchos_civil::local(
-            unix,
-            cfg.display.utc_offset_minutes as i64,
-            cfg.display.eu_dst,
-        );
+        let t = cfg.time.zone.local(unix);
         let req = sp::Replace {
             keep: if self.boot_file_broken { sp::Keep::Broken } else { sp::Keep::Backup },
             stamp: sp::Stamp::from_civil(&t),

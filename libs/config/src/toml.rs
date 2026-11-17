@@ -580,7 +580,7 @@ mod tests {
     fn example_values() {
         let raw = Document::parse(EXAMPLE).unwrap().raw();
         assert_eq!(raw.values["homeassistant.port"], Value::Int(8123));
-        assert_eq!(raw.values["display.dst"], Value::Str("eu".into()));
+        assert_eq!(raw.values["time.zone"], Value::Str("Europe/Amsterdam".into()));
         assert_eq!(raw.arrays["tile"].len(), 2);
         assert_eq!(
             raw.arrays["tile"][1]["entity"],
@@ -701,11 +701,11 @@ mod tests {
     #[test]
     fn set_new_section_goes_before_arrays() {
         let mut doc = Document::parse(EXAMPLE).unwrap();
-        doc.set("time", "ntp_server", Value::Str("pool.ntp.org".into()));
+        doc.set("web", "port", Value::Int(8080));
         let text = doc.to_text();
-        let time = text.find("[time]\nntp_server = \"pool.ntp.org\"\n").expect(&text);
+        let web = text.find("[web]\nport = 8080\n").expect(&text);
         let tiles = text.find("# Dashboard tiles").unwrap();
-        assert!(time < tiles, "{text}");
+        assert!(web < tiles, "{text}");
         assert_eq!(
             Document::parse(&text).unwrap().raw().arrays["tile"].len(),
             2

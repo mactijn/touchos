@@ -60,8 +60,6 @@ pub struct Display {
     /// Screen off when idle between these minutes of the day (may wrap).
     pub night: Option<(u16, u16)>,
     pub rotation: Rotation,
-    pub utc_offset_minutes: i32,
-    pub eu_dst: bool,
     /// Draw the dashboard (false: leave the text console on screen).
     pub ui: bool,
 }
@@ -69,6 +67,8 @@ pub struct Display {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Time {
     pub ntp_server: String,
+    /// `time.zone`'s rule.
+    pub zone: touchos_civil::Tz,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -180,12 +180,11 @@ impl Config {
         }
         for key in raw.values.keys() {
             if schema::field(key).is_none() {
-                issue(
-                    &mut issues,
-                    key,
-                    "unknown setting; ignored".into(),
-                    Severity::Warning,
-                );
+                let msg = match schema::RETIRED.iter().find(|r| r.0 == key) {
+                    Some((_, now)) => format!("no longer used; set {now} instead"),
+                    None => "unknown setting; ignored".into(),
+                };
+                issue(&mut issues, key, msg, Severity::Warning);
             }
         }
         for name in raw.arrays.keys().filter(|n| *n != "tile") {
@@ -284,12 +283,11 @@ impl Config {
                     Some("0") => Rotation::Fixed(0),
                     _ => Rotation::Auto,
                 },
-                utc_offset_minutes: int("display.utc_offset_minutes") as i32,
-                eu_dst: string("display.dst").as_deref() != Some("none"),
                 ui: string("display.ui").as_deref() != Some("off"),
             },
             time: Time {
                 ntp_server: string("time.ntp_server").unwrap_or_default(),
+                zone: schema::time_zone(&string("time.zone").unwrap_or_default()),
             },
             dashboard: Dashboard {
                 types: list("dashboard.types").unwrap_or_default(),
@@ -338,8 +336,8 @@ mod tests {
         assert_eq!(c.display.dim_brightness, 15);
         assert_eq!(c.display.dim_after_seconds, 60);
         assert_eq!(c.display.rotation, Rotation::Auto);
-        assert_eq!(c.display.utc_offset_minutes, 60);
-        assert!(c.display.eu_dst && c.display.ui);
+        assert_eq!(c.time.zone, touchos_civil::Tz::UTC);
+        assert!(c.display.ui);
         assert_eq!(c.time.ntp_server, "time.google.com");
         assert_eq!(c.dashboard.types.len(), 8);
         assert_eq!(c.dashboard.rooms, None);
@@ -374,11 +372,11 @@ mod tests {
 
     #[test]
     fn bad_values_fall_back_and_are_reported() {
-        let text = "[display]\nbrightness = 150\nnight = \"late\"\ndst = \"us\"\nfoo = 1\n\n[[tile]]\nentity = \"nope\"\n\n[[tile]]\nentity = \"light.a\"\nname = \"\"\ncolor = 1\n";
+        let text = "[display]\nbrightness = 150\nnight = \"late\"\nfoo = 1\n\n[time]\nzone = \"Mars/Olympus\"\n\n[[tile]]\nentity = \"nope\"\n\n[[tile]]\nentity = \"light.a\"\nname = \"\"\ncolor = 1\n";
         let (c, issues) = Config::parse(text).unwrap();
         assert_eq!(c.display.brightness, 100);
         assert_eq!(c.display.night, None);
-        assert!(c.display.eu_dst);
+        assert_eq!(c.time.zone, touchos_civil::Tz::UTC);
         assert_eq!(
             c.tiles,
             alloc::vec![Tile {
@@ -392,7 +390,7 @@ mod tests {
             [
                 "display.brightness",
                 "display.night",
-                "display.dst",
+                "time.zone",
                 "display.foo",
                 "tile[1].entity",
                 "tile[2].color"
@@ -406,6 +404,25 @@ mod tests {
         assert!(c.homeassistant.use_tls());
         let (c, _) = Config::parse("[homeassistant]\nport = 443\ntls = false\n").unwrap();
         assert!(!c.homeassistant.use_tls());
+    }
+
+    #[test]
+    fn time_zones() {
+        let (c, issues) = Config::parse("[time]\nzone = \"Europe/Amsterdam\"\n").unwrap();
+        assert!(issues.is_empty(), "{issues:?}");
+        assert_eq!(c.time.zone.std, 3600);
+        assert!(c.time.zone.dst.is_some());
+        // A POSIX rule works too; the case of a name is corrected.
+        let (c, issues) = Config::parse("[time]\nzone = \"<+0545>-5:45\"\n").unwrap();
+        assert!(issues.is_empty() && c.time.zone.std == 20_700);
+        let (c, issues) = Config::parse("[time]\nzone = \"america/new_york\"\n").unwrap();
+        assert_eq!(c.time.zone.std, -18_000);
+        assert_eq!(issues[0].severity, Severity::Warning);
+        // The old settings say what replaced them.
+        let (c, issues) = Config::parse("[display]\nutc_offset_minutes = 60\ndst = \"eu\"\n").unwrap();
+        assert_eq!(c.time.zone, touchos_civil::Tz::UTC);
+        assert_eq!(issues.len(), 2);
+        assert!(issues.iter().all(|i| i.msg.contains("time.zone")), "{issues:?}");
     }
 
     #[test]

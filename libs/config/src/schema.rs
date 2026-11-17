@@ -43,6 +43,8 @@ pub enum Kind {
     TimeRange,
     /// `domain.object_id`.
     EntityId,
+    /// An IANA time zone (`Europe/Amsterdam`), or a POSIX TZ rule.
+    TimeZone,
 }
 
 impl Kind {
@@ -244,25 +246,6 @@ pub static FIELDS: &[Field] = &[
         "\"auto\" follows an accelerometer where the board has one (the Toon has none: as 0).",
         Live,
     ),
-    f(
-        "display.utc_offset_minutes",
-        Kind::Int {
-            min: -720,
-            max: 840,
-        },
-        D::Int(60),
-        "UTC offset (minutes)",
-        "Time zone: 60 for Central European Time.",
-        Live,
-    ),
-    f(
-        "display.dst",
-        Kind::Enum(&["eu", "none"]),
-        D::Str("eu"),
-        "Summer time",
-        "\"eu\": European summer time rules. \"none\": no summer time.",
-        Live,
-    ),
     hidden(f(
         "display.ui",
         Kind::Enum(&["on", "off"]),
@@ -272,6 +255,14 @@ pub static FIELDS: &[Field] = &[
         Reboot,
     )),
     // [time]
+    f(
+        "time.zone",
+        Kind::TimeZone,
+        D::Str("UTC"),
+        "Time zone",
+        "Where the panel is, e.g. Europe/Amsterdam (summer time included). A POSIX TZ rule such as CET-1CEST,M3.5.0,M10.5.0/3 also works.",
+        Live,
+    ),
     f(
         "time.ntp_server",
         Kind::Host,
@@ -488,8 +479,30 @@ pub fn check(kind: Kind, v: &Value) -> Check {
             Value::Str(s) if is_entity_id(s) => Ok(v.clone()),
             _ => Bad("expected an entity id like light.kitchen".into()),
         },
+        Kind::TimeZone => match v {
+            Value::Str(s) => match touchos_civil::find(s) {
+                Some((name, _)) if name == s => Ok(v.clone()),
+                Some((name, _)) => Fixed(Value::Str(name.into()), format!("the zone is spelled {name}")),
+                None if touchos_civil::Tz::parse(s).is_some() => Ok(v.clone()),
+                None => Bad("not a time zone (e.g. Europe/Amsterdam)".into()),
+            },
+            _ => Bad("expected a time zone in quotes, e.g. \"Europe/Amsterdam\"".into()),
+        },
     }
 }
+
+/// A checked `time.zone` value -> its rule (UTC if it has none).
+pub fn time_zone(s: &str) -> touchos_civil::Tz {
+    touchos_civil::zone(s)
+        .or_else(|| touchos_civil::Tz::parse(s))
+        .unwrap_or(touchos_civil::Tz::UTC)
+}
+
+/// Settings that are gone, and what took their place.
+pub static RETIRED: &[(&str, &str)] = &[
+    ("display.utc_offset_minutes", "time.zone"),
+    ("display.dst", "time.zone"),
+];
 
 fn is_ident(s: &str) -> bool {
     !s.is_empty()
