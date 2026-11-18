@@ -76,7 +76,7 @@ A test boot with `test_fail=` is never made the active copy. To test the trial o
 - **Where.** `webui/` is an Angular app with Angular Material (standalone components, signals, no zone.js). `cargo xtask build` builds it into `build/webui/` when anything in `webui/` changed, and `servers/web/build.rs` embeds those files, each also gzip-compressed. [webui/README.md](../webui/README.md) has the rules the panel imposes.
 - **Requests.** The panel answers one request per connection, so the app is one script (about 1 MB, 200 KB gzipped) with no lazy-loaded parts. Icons are SVGs inside it, and the font is the browser's own: the page needs nothing from the internet.
 - **Inline styles need the nonce.** Angular Material adds its styles as `<style>` elements. The panel's Content-Security-Policy allows them only with a random nonce, made for each load of `index.html` and handed to Angular through `ngCspNonce`. Inline scripts stay forbidden.
-- **Developing.** `cargo xtask webui serve http://<panel-ip>` (or the default, QEMU at `localhost:8080`) serves the app with live reload on `localhost:4200`. The proxy presents itself to the panel as the panel's own page, because the panel accepts only its own Host and Origin.
+- **Developing.** `cargo xtask webui serve http://<panel-ip>` (or the default, QEMU at `localhost:8080`) serves the app with live reload on `localhost:4200`. The proxy presents itself to the panel as the panel's own page, because the panel accepts changes only with a matching Origin.
 
 ## Screenshots
 

@@ -235,7 +235,20 @@ impl Hdr {
     pub fn group(&self) -> bool {
         self.addr1[0] & 1 != 0
     }
+
+    /// A group frame the station passes on: to broadcast or the mDNS group
+    /// (the only multicast the network stack listens to; the chip has no
+    /// per-group filter), and not one of our own that the access point
+    /// sends back to the BSS (from-DS with us as the source).
+    pub fn wanted_group(&self, me: [u8; 6]) -> bool {
+        let ours = self.fc1 & 3 == FC1_FROM_DS && self.addr3 == me;
+        (self.addr1 == BROADCAST || self.addr1 == MDNS_GROUP) && !ours
+    }
 }
+
+pub const BROADCAST: [u8; 6] = [0xff; 6];
+/// 224.0.0.251's Ethernet address.
+pub const MDNS_GROUP: [u8; 6] = [0x01, 0x00, 0x5e, 0x00, 0x00, 0xfb];
 
 /// Management frame type/subtype byte, or None for non-management frames.
 pub fn mgmt_subtype(frame: &[u8]) -> Option<u8> {
@@ -472,6 +485,27 @@ mod tests {
         }
         assert_eq!(Hdr::parse(&auth[..23]), None);
         assert_eq!(Hdr::parse(&[0xd4, 0, 0, 0, 1, 2, 3, 4, 5, 6]), None);
+    }
+
+    #[test]
+    fn group_frames() {
+        let me = [0x02, 0, 0, 0, 0, 9];
+        let frame = |to: [u8; 6], from: [u8; 6]| {
+            let mut f = [0u8; 24];
+            f[0] = FC0_DATA;
+            f[1] = FC1_FROM_DS;
+            f[4..10].copy_from_slice(&to);
+            f[10..16].copy_from_slice(&[7; 6]);
+            f[16..22].copy_from_slice(&from);
+            Hdr::parse(&f).unwrap()
+        };
+        assert!(frame(BROADCAST, [3; 6]).wanted_group(me));
+        assert!(frame(MDNS_GROUP, [3; 6]).wanted_group(me));
+        // Other groups (SSDP, IPv6), and our own sent back.
+        assert!(!frame([0x01, 0, 0x5e, 0x7f, 0xff, 0xfa], [3; 6]).wanted_group(me));
+        assert!(!frame([0x33, 0x33, 0, 0, 0, 1], [3; 6]).wanted_group(me));
+        assert!(!frame(MDNS_GROUP, me).wanted_group(me));
+        assert!(!frame(BROADCAST, me).wanted_group(me));
     }
 
     #[test]

@@ -5,8 +5,7 @@
 //! (secrets are never sent back, only whether they are set) and change
 //! them; the config server checks every change against the schema.
 //!
-//! Defenses: the Host header must be the panel's own address (DNS
-//! rebinding); changes need a custom header and a matching Origin (CSRF);
+//! Defenses: changes need a custom header and a matching Origin (CSRF);
 //! responses forbid framing and inline scripts, and allow inline styles
 //! only with the page load's nonce; requests have size and time limits; six
 //! connections at a time.
@@ -104,12 +103,9 @@ async fn read_request(s: &mut TcpStream) -> Result<Incoming, u16> {
 }
 
 /// `POST /api/update`: a signed update bundle (application/octet-stream),
-/// up to touchos_update::MAX_BUNDLE bytes. Checked like every change (host,
-/// X-Touchos header, origin, session) before its body is read.
+/// up to touchos_update::MAX_BUNDLE bytes. Checked like every change
+/// (X-Touchos header, origin, session) before its body is read.
 async fn upload(s: &mut TcpStream, req: Request, already: Vec<u8>, len: usize) -> Response {
-    if !host_ok(&req) {
-        return error(421, "use the panel's IP address");
-    }
     if !req.from_our_page() {
         return error(
             403,
@@ -165,11 +161,6 @@ async fn receive(s: &mut TcpStream, mem: u32, already: Vec<u8>, len: usize) -> R
     Ok(())
 }
 
-/// The addresses a browser may use for us (see Request::host_ok).
-fn host_ok(req: &Request) -> bool {
-    req.host_ok(touchos_netc::status().and_then(|s| s.ipv4).map(|(ip, _)| ip))
-}
-
 /// Changes must come from our own page (custom header, same origin), as
 /// JSON.
 fn csrf_ok(req: &Request) -> bool {
@@ -216,7 +207,6 @@ async fn serve_conn(mut s: TcpStream) {
     let resp = match read_request(&mut s).await {
         Err(status) => error(status, http::reason(status)),
         Ok(Incoming::Done(r)) => secure(r, true),
-        Ok(Incoming::Request(req)) if !host_ok(&req) => error(421, "use the panel's IP address"),
         Ok(Incoming::Request(req)) => {
             let api = req.path.starts_with("/api/");
             let mutating = matches!(req.method.as_str(), "POST" | "PATCH" | "PUT" | "DELETE");
@@ -340,40 +330,46 @@ fn main() {
     let port = cfg.web.port;
     exec::spawn(watch_settings());
     exec::spawn(async move {
-        let listener = loop {
-            match Listener::bind(port, MAX_CONNS as u16) {
-                Ok(l) => break l,
-                Err(e) => {
-                    warn!("can't listen on port {port}: {e}; retrying");
-                    exec::sleep_ms(2000).await;
-                }
-            }
-        };
-        let (ip, _) = touchos_netc::wait_configured().await;
-        info!(
-            "settings page at http://{}.{}.{}.{}{}/",
-            ip[0],
-            ip[1],
-            ip[2],
-            ip[3],
-            if port == 80 {
-                String::new()
-            } else {
-                format!(":{port}")
-            }
-        );
+        let mut announced = false;
+        // A restarted net server forgets our listener and our service: then
+        // accept fails, and we bind and register again.
         loop {
-            while CONNS.with(|n| *n) >= MAX_CONNS {
-                exec::sleep_ms(20).await;
-            }
-            match listener.accept().await {
-                Ok(s) => {
-                    CONNS.with(|n| *n += 1);
-                    exec::spawn(serve_conn(s));
+            let listener = loop {
+                match Listener::bind(port, MAX_CONNS as u16) {
+                    Ok(l) => break l,
+                    Err(e) => {
+                        warn!("can't listen on port {port}: {e}; retrying");
+                        exec::sleep_ms(2000).await;
+                    }
                 }
-                Err(e) => {
-                    warn!("accept: {e}");
-                    exec::sleep_ms(1000).await;
+            };
+            if let Err(e) = touchos_netc::mdns_register("_http._tcp", "", port, &["path=/"]) {
+                warn!("can't announce the settings page over mDNS: {e}");
+            }
+            if !announced {
+                announced = true;
+                let (ip, _) = touchos_netc::wait_configured().await;
+                let port_part = if port == 80 { String::new() } else { format!(":{port}") };
+                let host = touchos_netc::status().map(|s| s.hostname).unwrap_or_default();
+                info!(
+                    "settings page at http://{}.{}.{}.{}{port_part}/ and http://{host}.local{port_part}/",
+                    ip[0], ip[1], ip[2], ip[3]
+                );
+            }
+            loop {
+                while CONNS.with(|n| *n) >= MAX_CONNS {
+                    exec::sleep_ms(20).await;
+                }
+                match listener.accept().await {
+                    Ok(s) => {
+                        CONNS.with(|n| *n += 1);
+                        exec::spawn(serve_conn(s));
+                    }
+                    Err(e) => {
+                        warn!("accept: {e}; listening again");
+                        exec::sleep_ms(1000).await;
+                        break;
+                    }
                 }
             }
         }

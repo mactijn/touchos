@@ -15,7 +15,7 @@ You load touchos once over JTAG from a Raspberry Pi. After that the Toon boots t
   - [rustup](https://rustup.rs) (the right nightly toolchain installs itself from `rust-toolchain.toml`) and `git`;
   - **Node.js 24 or newer** (`npm`), which builds the settings page (without it, the panel serves a placeholder page and you can't pair or update);
   - optionally `qemu-system-arm`, to try touchos without hardware first.
-- **A Home Assistant** reachable by IP address (touchos does no mDNS), with a long-lived access token (your profile → Security → Long-lived access tokens).
+- **A Home Assistant** reachable by IP address or DNS name (touchos answers to its own `.local` name, but can't look up others), with a long-lived access token (your profile → Security → Long-lived access tokens).
 - **Wi-Fi with WPA2-PSK (AES)**, or an Ethernet cable to the Toon.
 
 ## 1. Build
@@ -141,7 +141,7 @@ From now on the Toon starts touchos at every power-on, and the watchdog restarts
 
 ## 8. The settings page
 
-Open the address from the log (`http://<panel-ip>/`) in a browser on the same network. Click "Show a code on the panel" and type the 6-digit code from the Toon's screen. You can then change every setting, choose and order tiles, see the log, and install updates.
+Open `http://touchos-xxxxxx.local/` in a browser on the same network: `xxxxxx` is the end of the Wi-Fi MAC address, and the log has the name and the IP address (`web: settings page at ...`). If `.local` names don't work on your computer, use the IP address (`http://<panel-ip>/`). Click "Show a code on the panel" and type the 6-digit code from the Toon's screen. You can then change every setting, choose and order tiles, see the log, and install updates.
 
 The page is plain HTTP: anyone on your network can read what you send it.
 

@@ -137,10 +137,12 @@ const STATION_FILTER: u32 = DROP_CRC_ERR
     | DROP_RTS
     | DROP_PSPOLL;
 
-/// Joined: frames of other networks (their beacons are most of what
-/// arrives: on the Toon 83 wake-ups a second, 25 of them ours) and
-/// multicast (the stack is IPv4 without multicast) are dropped too.
-const JOINED_FILTER: u32 = STATION_FILTER | DROP_NOT_MY_BSSD | DROP_MC;
+/// Joined: frames of other networks are dropped too (their beacons are
+/// most of what arrives: on the Toon 83 wake-ups a second, 25 of them
+/// ours). Multicast passes: the chip can only take all of it or none, and
+/// mDNS needs 224.0.0.251; the station drops the other groups
+/// (`Hdr::wanted_group`).
+const JOINED_FILTER: u32 = STATION_FILTER | DROP_NOT_MY_BSSD;
 
 /// Receive only: everything but errors and control frames, so beacons and
 /// probe responses of every network arrive (probe responses to other

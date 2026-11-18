@@ -3,7 +3,8 @@
 # settings page changes it there (keeping these comments).
 
 [homeassistant]
-# Use the IP address: the OS does not do mDNS (.local names).
+# The IP address (or a DNS name): the panel answers to its own .local name,
+# but can't look up others.
 host = "192.168.1.10"
 port = 8123
 # Profile -> Security -> Long-lived access tokens
@@ -21,6 +22,12 @@ token = "PASTE-TOKEN-HERE"
 # log_host = "192.168.1.20:5555"
 # Development: also log pairing codes, so `cargo xtask pair` works without the screen.
 # log_pin = true
+
+[net]
+# The panel's name: http://<name>.local, and what the router lists it as.
+# Default: touchos- and the end of the MAC address (touchos-221a2b).
+# hostname = "touchos-kitchen"
+# mdns = false           # don't answer to .local names or announce the settings page
 
 [display]
 # Backlight in percent: while in use, and after `dim_after_seconds` without touches.
