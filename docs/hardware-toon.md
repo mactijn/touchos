@@ -140,10 +140,11 @@ Which `imx-i2c` instance Linux numbers `i2c-0` follows the iomem order above; ch
   - Efuse v1.1: RF5370, 1T1R, frequency offset 0x2f, LNA 0x0a, RSSI offsets 0, TX power 14 (channels 1–9) and 15 (10–14), external LNA. The efuse also holds the MAC address.
   - `rt3071.bin` loads with a valid CRC and reads back; the MCU is ready after 14 ms.
   - The autorun check (DEVICE_MODE 0x11, IN) times out: this module doesn't answer it. That costs about 5 s of the init.
-  - A passive scan of channels 1–13 takes 1.6 s. While scanning, MAC_SYS_CTRL is `0x8`: RX on, TX off.
+  - A passive scan of channels 1–13 takes 2.9 s: 210 ms per channel, two beacon intervals. With 110 ms (1.6 s in all) a scan sometimes missed an access point a few metres away. While scanning, MAC_SYS_CTRL is `0x8`: RX on, TX off, so no probe requests.
 - **Wi-Fi under touchos:** the RT5370 as a WPA2 station (legacy 802.11g rates).
   - Management frames at 1 Mbit/s; data rates chosen by AMRR, as in OpenBSD. A step down waits for more than 10 transmissions, so it doesn't react to samples like 1 retry in 2 frames. In use the rate moves between 18 and 36 Mbit/s.
   - Authentication and association are ACKed at the first try; the 4-way handshake and the group key complete.
+  - Leaving (the link lost, a failed attempt, or a restart for new settings), the station sends a deauthentication. A Raspberry Pi 4 as access point (Broadcom firmware) otherwise kept the panel as associated and ignored its next authentication, so a live `wifi.ssid` change never got the panel back on.
   - With the Ethernet PHY down or the cable unplugged, `net` moves to Wi-Fi: DHCP in about 1 s, TLS to Home Assistant in 1.6 s. After unplugging the cable, HA is connected again about 8 s later.
   - The web page answers in 44–105 ms over Wi-Fi; ping about 6 ms.
   - An hour on Wi-Fi: no reconnects, no warnings; 3005 frames sent, 0 failed (no ACK), 0 USB errors.
