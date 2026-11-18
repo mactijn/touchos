@@ -6,6 +6,7 @@
 
 use ::log::{debug, info, warn};
 use alloc::vec::Vec;
+use core::sync::atomic::{AtomicBool, Ordering};
 use touchos_drv::link;
 use touchos_rt::{exec, time};
 
@@ -63,6 +64,9 @@ pub async fn serve<R: Radio>(r: &mut R, ssid: Option<&str>, psk: Option<&str>) -
     }
     let mut failures = Backoff::default();
     loop {
+        if LEAVING.load(Ordering::SeqCst) {
+            return Ok(());
+        }
         let nets = r.scan().await?;
         let mut candidates = scan::for_ssid(&nets, ssid.as_bytes());
         info!(
@@ -84,7 +88,9 @@ pub async fn serve<R: Radio>(r: &mut R, ssid: Option<&str>, psk: Option<&str>) -
         match connect(r, bss, psk).await {
             Ok(mut station) => {
                 failures = Backoff::default();
-                run(r, &mut station).await;
+                if run(r, &mut station).await == Ended::Leaving {
+                    return Ok(());
+                }
             }
             Err(e) => warn!("connect failed: {e}"),
         }
@@ -219,7 +225,7 @@ pub async fn connect<R: Radio>(r: &mut R, bss: Network, passphrase: &str) -> Res
         s.bss.channel
     );
     r.join(&s.bss).await?;
-
+    let established: Result<()> = async {
     // 802.11 open-system authentication.
     let mut authed = false;
     for attempt in 1..=3 {
@@ -311,7 +317,56 @@ pub async fn connect<R: Radio>(r: &mut R, bss: Network, passphrase: &str) -> Res
         if keys.gtk.is_some() { "ok" } else { "missing" }
     );
     s.keys = Some(keys);
+    Ok(())
+    }
+    .await;
+    if let Err(e) = established {
+        // The access point may count us as authenticated or associated;
+        // some ignore our next attempt until they have forgotten us.
+        if !r.dead() {
+            goodbye(r, &s).await;
+        }
+        return Err(e);
+    }
     Ok(s)
+}
+
+/// Tell the access point we are gone (see [`w::deauth`]). Best effort:
+/// whether it arrives changes nothing on our side.
+async fn goodbye<R: Radio>(r: &mut R, s: &Station) {
+    match send_mgmt(r, s, &w::deauth(&s.mac, &s.bss.bssid, w::REASON_LEAVING)).await {
+        Ok(()) => info!("deauthentication sent to {:02x?}", s.bss.bssid),
+        Err(e) => debug!("deauthentication: {e}"),
+    }
+}
+
+/// Set by [`leave`]: the program is about to exit.
+static LEAVING: AtomicBool = AtomicBool::new(false);
+/// Connected: in [`run`], until the goodbye is sent.
+static CONNECTED: AtomicBool = AtomicBool::new(false);
+
+/// Before the program exits (the settings changed): the connected station
+/// says goodbye to the access point (it notices within [`IDLE_WAIT_MS`])
+/// and stops. Waits at most `max_ms` for that.
+pub async fn leave(max_ms: u64) {
+    LEAVING.store(true, Ordering::SeqCst);
+    let end = time::now_ms() + max_ms;
+    while CONNECTED.load(Ordering::SeqCst) && time::now_ms() < end {
+        exec::sleep_ms(10).await;
+    }
+}
+
+/// Why [`run`] returned.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Ended {
+    /// The access point disconnected us.
+    ByAccessPoint,
+    /// Nothing heard from the access point for a while.
+    Lost,
+    /// The radio stopped working.
+    RadioDead,
+    /// [`leave`] asked us to.
+    Leaving,
 }
 
 fn eapol_eth(s: &Station, eapol: &[u8]) -> Vec<u8> {
@@ -354,8 +409,20 @@ async fn wait_eapol<R: Radio>(
 }
 
 /// Connected: move frames between the radio and the network stack until the
-/// link drops. Returns when we are disconnected.
-pub async fn run<R: Radio>(r: &mut R, s: &mut Station) {
+/// link drops. Returns when we are disconnected, and why; when we left
+/// (lost the access point, or [`leave`]), the access point has been told.
+pub async fn run<R: Radio>(r: &mut R, s: &mut Station) -> Ended {
+    CONNECTED.store(true, Ordering::SeqCst);
+    let ended = pump(r, s).await;
+    if matches!(ended, Ended::Lost | Ended::Leaving) {
+        goodbye(r, s).await;
+    }
+    CONNECTED.store(false, Ordering::SeqCst);
+    link::down();
+    ended
+}
+
+async fn pump<R: Radio>(r: &mut R, s: &mut Station) -> Ended {
     // What `net` queued while we were not connected is stale: drop it
     // rather than send it over the new link.
     let stale = core::iter::from_fn(link::pop_tx).count();
@@ -368,7 +435,10 @@ pub async fn run<R: Radio>(r: &mut R, s: &mut Station) {
         let frames = r.recv();
         if r.dead() {
             warn!("the radio stopped working");
-            break;
+            return Ended::RadioDead;
+        }
+        if LEAVING.load(Ordering::SeqCst) {
+            return Ended::Leaving;
         }
         for f in frames {
             let Some(h) = Hdr::parse(&f.data) else { continue };
@@ -381,8 +451,7 @@ pub async fn run<R: Radio>(r: &mut R, s: &mut Station) {
                         Some(r) => warn!("disconnected by the access point (reason {r})"),
                         None => warn!("disconnected by the access point (no reason code)"),
                     }
-                    link::down();
-                    return;
+                    return Ended::ByAccessPoint;
                 }
                 Some(_) => continue,
                 None => {}
@@ -407,8 +476,7 @@ pub async fn run<R: Radio>(r: &mut R, s: &mut Station) {
         }
         if time::now_ms() - last_rx > 10_000 {
             warn!("no frames from the access point for 10 s; reconnecting");
-            link::down();
-            return;
+            return Ended::Lost;
         }
         if sent == 0 {
             match r.event_bit() {
@@ -423,7 +491,6 @@ pub async fn run<R: Radio>(r: &mut R, s: &mut Station) {
             exec::yield_now().await;
         }
     }
-    link::down();
 }
 
 /// The longest the connected station sleeps when the radio wakes it.

@@ -31,12 +31,18 @@ pub mod config {
     pub use touchos_config::client::settings::get;
 }
 
+/// How long a settings change waits for the goodbye to the access point.
+const LEAVE_MS: u64 = 500;
+
 /// Exit (to be restarted) when the Wi-Fi settings change.
 async fn watch_settings() {
     loop {
         let (old, new) = touchos_config::client::settings::changed().await;
         if new.wifi != old.wifi {
             log::info!("settings changed; restarting");
+            // Say goodbye first: an access point that still counts us as
+            // associated may ignore the new process's attempts.
+            station::leave(LEAVE_MS).await;
             link::down();
             touchos_rt::sys::exit(touchos_abi::exit::RESTART);
         }
