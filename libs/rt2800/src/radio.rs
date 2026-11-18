@@ -41,8 +41,11 @@ use touchos_wlan::scan::{CHANNELS_2GHZ, Network, host_scan};
 use touchos_wlan::{Error, Mac, Result};
 
 
-/// Listening time per channel in the scan (beacons come every ~102 ms).
-const DWELL_MS: u64 = 110;
+/// Listening time per channel in the scan: two beacon intervals (~102 ms
+/// each). With one, a beacon a little late, or the channel switch, was
+/// enough to miss an access point a few metres away: on the Toon a scan
+/// sometimes needed three tries to see it.
+const DWELL_MS: u64 = 210;
 /// How long to wait for a management frame's TX result.
 const MGMT_RESULT_MS: u64 = 50;
 /// How often to read the TX statistics for the rate control while

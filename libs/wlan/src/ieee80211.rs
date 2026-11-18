@@ -279,6 +279,18 @@ pub fn reason(frame: &[u8]) -> Option<u16> {
     le16(frame, 24)
 }
 
+/// Reason code 3: deauthenticated because the sending station is leaving.
+pub const REASON_LEAVING: u16 = 3;
+
+/// Deauthentication: we are leaving, so the access point forgets us at
+/// once instead of after its inactivity timeout. Some access points ignore
+/// a new authentication from a station they still count as associated.
+pub fn deauth(me: &[u8; 6], bssid: &[u8; 6], reason: u16) -> Vec<u8> {
+    let mut f = mgmt_header(FC0_MGMT_DEAUTH, bssid, me, bssid);
+    f.extend_from_slice(&reason.to_le_bytes());
+    f
+}
+
 /// The information elements in `body` (a management frame's after its
 /// fixed fields, or EAPOL-Key data): (element id, contents). Stops at the
 /// first element that runs past the end, so a truncated frame yields what
@@ -448,6 +460,17 @@ mod tests {
         assert_eq!(reason(&mgmt(FC0_MGMT_DEAUTH, &[])), None);
         assert_eq!(reason(&mgmt(FC0_MGMT_DEAUTH, &[3])), None);
         assert_eq!(reason(&[]), None);
+    }
+
+    #[test]
+    fn deauth_frame() {
+        let (me, ap) = ([2, 0, 0, 0, 0, 1], [2, 0, 0, 0, 0, 9]);
+        let f = deauth(&me, &ap, REASON_LEAVING);
+        assert_eq!(f.len(), 26);
+        let h = Hdr::parse(&f).unwrap();
+        assert_eq!(h.mgmt_subtype(), Some(FC0_MGMT_DEAUTH));
+        assert_eq!((h.addr1, h.addr2, h.addr3), (ap, me, ap));
+        assert_eq!(reason(&f), Some(3));
     }
 
     #[test]
