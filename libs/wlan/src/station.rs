@@ -187,10 +187,12 @@ async fn wait_frame<R: Radio>(
     }
 }
 
-/// A data frame from the access point, to us or to a group, as an
-/// Ethernet frame (see [`RxKeys::open`]).
+/// A data frame from the access point, to us or to a group we want
+/// ([`Hdr::wanted_group`]), as an Ethernet frame (see [`RxKeys::open`]).
+/// Other groups are dropped before they cost a decryption.
 fn rx_data(s: &mut Station, f: &RxFrame, h: &Hdr) -> Option<Vec<u8>> {
-    if !h.is_data() || h.addr2 != s.bss.bssid || !(h.group() || h.addr1 == s.mac) {
+    let to_us = h.addr1 == s.mac || (h.group() && h.wanted_group(s.mac));
+    if !h.is_data() || h.addr2 != s.bss.bssid || !to_us {
         return None;
     }
     s.rx.open(&f.data, h, f.crypto)

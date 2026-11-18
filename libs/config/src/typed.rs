@@ -16,6 +16,7 @@ pub struct Config {
     pub wifi: Wifi,
     pub display: Display,
     pub time: Time,
+    pub net: Net,
     pub dashboard: Dashboard,
     pub debug: Debug,
     pub web: Web,
@@ -69,6 +70,15 @@ pub struct Time {
     pub ntp_server: String,
     /// `time.zone`'s rule.
     pub zone: touchos_civil::Tz,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Net {
+    /// `net.hostname`; `None` = `touchos-` and the MAC's last three bytes
+    /// (`touchos_proto::net::default_hostname`).
+    pub hostname: Option<String>,
+    /// Answer mDNS queries and announce services.
+    pub mdns: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -289,6 +299,10 @@ impl Config {
                 ntp_server: string("time.ntp_server").unwrap_or_default(),
                 zone: schema::time_zone(&string("time.zone").unwrap_or_default()),
             },
+            net: Net {
+                hostname: string("net.hostname").filter(|s| !s.is_empty()),
+                mdns: v.get("net.mdns").and_then(Value::as_bool).unwrap_or(true),
+            },
             dashboard: Dashboard {
                 types: list("dashboard.types").unwrap_or_default(),
                 rooms: list("dashboard.rooms").filter(|r| !r.is_empty()),
@@ -423,6 +437,20 @@ mod tests {
         assert_eq!(c.time.zone, touchos_civil::Tz::UTC);
         assert_eq!(issues.len(), 2);
         assert!(issues.iter().all(|i| i.msg.contains("time.zone")), "{issues:?}");
+    }
+
+    #[test]
+    fn net() {
+        let c = Config::default();
+        assert_eq!(c.net.hostname, None);
+        assert!(c.net.mdns);
+        let (c, issues) = Config::parse("[net]\nhostname = \"Hal\"\nmdns = false\n").unwrap();
+        assert_eq!(c.net.hostname.as_deref(), Some("hal"));
+        assert!(!c.net.mdns);
+        assert_eq!(issues.len(), 1, "{issues:?}");
+        let (c, issues) = Config::parse("[net]\nhostname = \"a.local\"\n").unwrap();
+        assert_eq!(c.net.hostname, None);
+        assert_eq!(issues[0].severity, Severity::Error);
     }
 
     #[test]

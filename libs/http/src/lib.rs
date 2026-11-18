@@ -42,22 +42,6 @@ impl Request {
         })
     }
 
-    /// Whether the browser used one of our names in `Host` (anything else
-    /// is a DNS-rebinding attempt): `our_ip`, or localhost (QEMU's port
-    /// forwarding). A port after the name doesn't matter.
-    pub fn host_ok(&self, our_ip: Option<[u8; 4]>) -> bool {
-        let Some(host) = self.header("host") else {
-            return false;
-        };
-        let name = host
-            .rsplit_once(':')
-            .map_or(host, |(h, p)| if p.bytes().all(|b| b.is_ascii_digit()) { h } else { host });
-        if name == "localhost" || name == "127.0.0.1" {
-            return true;
-        }
-        our_ip.is_some_and(|ip| name == format!("{}.{}.{}.{}", ip[0], ip[1], ip[2], ip[3]))
-    }
-
     /// Whether a change comes from our own page: the custom `X-Touchos:
     /// 1` header (a form or a simple cross-site request can't set it) and,
     /// when the browser says where it comes from, the same origin.
@@ -313,18 +297,6 @@ mod tests {
             headers: h.iter().map(|(n, v)| (n.to_string(), v.to_string())).collect(),
             body: Vec::new(),
         }
-    }
-
-    #[test]
-    fn host_checks() {
-        let ip = Some([192, 0, 2, 10]);
-        assert!(with_headers(&[("host", "192.0.2.10")]).host_ok(ip));
-        assert!(with_headers(&[("host", "192.0.2.10:80")]).host_ok(ip));
-        assert!(with_headers(&[("host", "localhost:8080")]).host_ok(None));
-        assert!(!with_headers(&[("host", "evil.example")]).host_ok(ip)); // rebinding
-        assert!(!with_headers(&[("host", "192.0.2.1")]).host_ok(ip));
-        assert!(!with_headers(&[("host", "192.0.2.10")]).host_ok(None)); // no address yet
-        assert!(!with_headers(&[]).host_ok(ip));
     }
 
     #[test]

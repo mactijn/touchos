@@ -1,6 +1,7 @@
 //! The socket service other processes call: CONNECT, LISTEN, ACCEPT,
-//! RESOLVE, STATUS; the connections and listeners it keeps for them, and
-//! moving their data between smoltcp and the shared socket memory.
+//! RESOLVE, STATUS, MDNS_REGISTER/UNREGISTER; the connections, listeners
+//! and services it keeps for them, and moving their data between smoltcp
+//! and the shared socket memory.
 //!
 //! It is the boundary other processes talk to: every request is checked,
 //! and a client that is gone (its notification answers Dead) loses its
@@ -114,6 +115,30 @@ pub(crate) fn handle(st: &mut State, msg: ipc::Msg) -> Tag {
         req::STATUS => {
             let s = status(st);
             reply(proto::OK, &encode(&s))
+        }
+        req::MDNS_REGISTER | req::MDNS_UNREGISTER => {
+            let Some(p) = touchos_proto::decode::<proto::Service>(d) else {
+                return bad_request(&msg);
+            };
+            let s = touchos_mdns::Service { kind: p.kind, instance: p.instance, port: p.port, txt: p.txt };
+            if !s.is_valid() {
+                return bad_request(&msg);
+            }
+            // Kept in the state for the next interface; the current one's
+            // responder gets it too.
+            st.services.retain(|x| !(x.kind == s.kind && x.port == s.port));
+            let responder = st.net.as_mut().and_then(|n| n.mdns.as_mut()).map(|m| &mut m.responder);
+            if msg.label == req::MDNS_REGISTER {
+                info!("mDNS: announcing {} on port {}", s.kind, s.port);
+                if let Some(r) = responder {
+                    r.add_service(s.clone(), time::now_ms());
+                }
+                st.services.push(s);
+            } else if let Some(r) = responder {
+                r.remove_service(&s.kind, s.port);
+            }
+            let _ = sys::signal(st.server, st.server_bits); // the stack sends
+            reply(proto::OK, &[])
         }
         req::CONNECT => {
             let (Some(ip), Some(port), Some(bits), &[client]) =

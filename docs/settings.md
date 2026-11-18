@@ -11,12 +11,15 @@
 
 ## The settings page
 
-Open `http://<panel-ip>/` in a browser on your network. The panel logs its address at boot (`web: settings page at ...`).
+Open `http://touchos-xxxxxx.local/` in a browser on your network, where `xxxxxx` is the end of the panel's MAC address. The System page shows the name, and the panel logs it with its IP address at boot (`web: settings page at ...`). `http://<panel-ip>/` works too, and so does the name your router may give the panel in its own DNS (`touchos-xxxxxx.lan`, `touchos-xxxxxx.fritz.box`, ...).
+
+`.local` names need mDNS on the computer: built into macOS, Windows 10 and later, iOS and Android; Linux needs Avahi with `nss-mdns` (most desktops have it).
 
 - **Pairing.** Click "Show a code on the panel" and type the 6-digit code from the panel's screen. The browser then stays signed in for `web.session_hours`. Wrong codes lock pairing for a while. A restart of the panel signs every browser out.
 - **Settings.** Every setting below, with its help text.
   - Display, dashboard and time changes apply at once.
   - Home Assistant and Wi-Fi changes make those connections restart.
+  - A new host name applies at once over mDNS; the router hears it at the next DHCP lease renewal.
   - The access token and the Wi-Fi password are never shown. Type a new one to replace it; leave the field empty to keep it.
   - Edits in any section are kept until you save or discard them: a bar at the bottom counts them and saves them all at once. Changed sections are marked in the side bar, invalid ones with an error mark.
   - Placeholders in italics are the defaults; an empty field uses the default.
@@ -55,6 +58,8 @@ Saving can be turned off on the kernel command line (`storage=`):
 | `display.ui` | `"on"` | `"off"` keeps the text console on screen (for debugging). |
 | `time.zone` | `"UTC"` | Where the panel is: an IANA time zone such as `"Europe/Amsterdam"` or `"America/New_York"`, summer time included. A POSIX TZ rule (`"CET-1CEST,M3.5.0,M10.5.0/3"`) also works, for a zone whose rules changed after the build. Replaces `display.utc_offset_minutes` and `display.dst`, which are no longer read. |
 | `time.ntp_server` | `"time.google.com"` | Used when the network's own time server (from DHCP) doesn't answer, or there is none. |
+| `net.hostname` | `touchos-` + the MAC's last 6 hex digits | The panel's name: `http://<name>.local`, and the DHCP host name (option 12) routers list it by. One DNS label: `a-z`, `0-9` and `-`, up to 63 characters. If another device answers to the name, the panel takes `<name>-2` (then `-3`, ...) until the next restart. Without the setting the name follows the interface's MAC, so Wi-Fi and Ethernet give different names. |
+| `net.mdns` | `true` | Answer to `<name>.local` and announce the settings page as `_http._tcp` (mDNS and DNS-SD). Off, the panel is reachable by IP address (and the router's DNS name) only. |
 | `dashboard.types` | lights, switches, climate, covers, fans, locks, media players, sensors | Which kinds of entities get tiles when no tiles are listed. |
 | `dashboard.rooms` | all | Which Home Assistant areas to show, in this order. `"Other"` = entities without an area. |
 | `debug.log_host` | | Send the log as UDP lines to `IP:port` (`cargo xtask log` receives them). |

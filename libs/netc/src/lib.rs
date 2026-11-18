@@ -46,6 +46,34 @@ pub fn status() -> Option<Status> {
         .flatten()
 }
 
+/// Announce a service over mDNS (DNS-SD) as `<instance>.<kind>.local`
+/// on `port`, while the net server runs: a restarted net server forgets
+/// it, so register again with each `Listener::bind`. `kind` is like
+/// `_http._tcp`; an empty `instance` is the panel's host name. A service
+/// with the same type and port replaces the earlier one.
+pub fn mdns_register(kind: &str, instance: &str, port: u16, txt: &[&str]) -> Result<(), NetError> {
+    mdns_call(req::MDNS_REGISTER, kind, instance, port, txt)
+}
+
+/// Stop announcing the service of this type on this port.
+pub fn mdns_unregister(kind: &str, port: u16) -> Result<(), NetError> {
+    mdns_call(req::MDNS_UNREGISTER, kind, "", port, &[])
+}
+
+fn mdns_call(label: u32, kind: &str, instance: &str, port: u16, txt: &[&str]) -> Result<(), NetError> {
+    let s = proto::Service {
+        kind: kind.into(),
+        instance: instance.into(),
+        port,
+        txt: txt.iter().map(|t| (*t).into()).collect(),
+    };
+    let m = ipc::call(ep()?, label, &touchos_proto::encode(&s), &[]).map_err(|_| NetError::LinkDown)?;
+    match m.label {
+        proto::OK => Ok(()),
+        _ => Err(NetError::ConnectFailed),
+    }
+}
+
 /// Wait until DHCP has given us an address; returns it.
 pub async fn wait_configured() -> (IpAddress, u8) {
     loop {

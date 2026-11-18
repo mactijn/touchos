@@ -45,6 +45,9 @@ pub enum Kind {
     EntityId,
     /// An IANA time zone (`Europe/Amsterdam`), or a POSIX TZ rule.
     TimeZone,
+    /// One DNS label: the panel's own name (`touchos-221a2b`): 1 to 63 of
+    /// `a-z`, `0-9` and `-`, not starting or ending with `-`.
+    HostName,
 }
 
 impl Kind {
@@ -271,6 +274,23 @@ pub static FIELDS: &[Field] = &[
         "Where the panel gets the time from when the network's own time server (from DHCP) doesn't answer, or there is none.",
         Live,
     ),
+    // [net]
+    f(
+        "net.hostname",
+        Kind::HostName,
+        D::None,
+        "Host name",
+        "The panel's name on the network: http://<name>.local, and the name the router lists. Empty: touchos- and the last six hex digits of the MAC address.",
+        Live,
+    ),
+    f(
+        "net.mdns",
+        Kind::Bool,
+        D::Bool(true),
+        "Announce on the network",
+        "Answer to <name>.local and announce the settings page (mDNS), so it can be opened without knowing the panel's IP address.",
+        Live,
+    ),
     // [dashboard]
     f(
         "dashboard.types",
@@ -488,7 +508,25 @@ pub fn check(kind: Kind, v: &Value) -> Check {
             },
             _ => Bad("expected a time zone in quotes, e.g. \"Europe/Amsterdam\"".into()),
         },
+        Kind::HostName => match v {
+            Value::Str(s) if is_label(s) => Ok(v.clone()),
+            Value::Str(s) if is_label(&s.to_ascii_lowercase()) => {
+                let lower = s.to_ascii_lowercase();
+                Fixed(Value::Str(lower.clone()), format!("names are lowercase: using {lower}"))
+            }
+            Value::Str(_) => Bad("1 to 63 of a-z, 0-9 and -, not starting or ending with -".into()),
+            _ => Bad("expected a name in quotes, e.g. \"touchos-kitchen\"".into()),
+        },
     }
+}
+
+/// One DNS label as the panel's name: 1 to 63 of `a-z`, `0-9` and `-`,
+/// not starting or ending with `-`.
+pub fn is_label(s: &str) -> bool {
+    (1..=63).contains(&s.len())
+        && !s.starts_with('-')
+        && !s.ends_with('-')
+        && s.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
 }
 
 /// A checked `time.zone` value -> its rule (UTC if it has none).
@@ -661,5 +699,18 @@ mod tests {
         assert_eq!(parse_time_range("24:00-07:00"), None);
         assert!(is_entity_id("light.kitchen_2"));
         assert!(!is_entity_id("Light.kitchen") && !is_entity_id("light") && !is_entity_id("a.b.c"));
+    }
+
+    #[test]
+    fn host_names() {
+        assert!(matches!(check(Kind::HostName, &s("touchos-221a2b")), Check::Ok(_)));
+        assert!(matches!(check(Kind::HostName, &s(&"a".repeat(63))), Check::Ok(_)));
+        assert_eq!(
+            check(Kind::HostName, &s("Kitchen-Panel")),
+            Check::Fixed(s("kitchen-panel"), "names are lowercase: using kitchen-panel".into())
+        );
+        for bad in ["", "-a", "a-", "a.local", "a b", "panel_1", &"a".repeat(64)] {
+            assert!(matches!(check(Kind::HostName, &s(bad)), Check::Bad(_)), "{bad:?}");
+        }
     }
 }
