@@ -31,7 +31,9 @@ fn nonce_and_aad(f: &[u8], h: &Hdr, pn: u64) -> ([u8; 13], Vec<u8>) {
         f[0]
     }; // mask data subtype bits 4-6
     aad.push(fc0);
-    aad.push(f[1] & 0xc7); // clear retry, power mgmt, more data
+    // Clear retry, power management, more data; in QoS data also Order
+    // (+HTC, 802.11-2016 12.5.3.3.3).
+    aad.push(f[1] & if h.tid.is_some() { 0x47 } else { 0xc7 });
     aad.extend_from_slice(&f[4..22]); // A1 A2 A3
     aad.push(f[22] & 0x0f); // sequence control: fragment number only
     aad.push(0);

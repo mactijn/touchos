@@ -31,7 +31,7 @@ The kernel is started by touchos's boot stage in NAND (`tools/toon/nandboot`, st
 | `usb` | The external port's EHCI: enumeration, USB disks (mass storage, read-only) |
 | `wifi` | The RT5370 on the internal EHCI (`libs/rt2800`), and the chip-independent WPA2 station (`libs/wlan`) |
 | `fec` | The i.MX Ethernet controller |
-| `net` | smoltcp: DHCP, DNS, TCP for the other processes (data through shared memory), NTP, the UDP log |
+| `net` | smoltcp: DHCP (with our host name), DNS, TCP for the other processes (data through shared memory), mDNS (`<host>.local` and the services others register), NTP, the UDP log |
 | `ha` | The Home Assistant client (WebSocket over TLS) |
 | `ui` | The dashboard: owns the framebuffer and the backlight |
 | `web` | The settings page (HTTP) |
@@ -72,6 +72,7 @@ Libraries (`libs/`) hold the logic. Most of it is tested on the development mach
 - `certs`: the root certificates TLS trusts (`cacerts.der`, from the distro's CA bundle by `cargo xtask cacerts`). The file is in the initrd, and init shares one read-only copy (the "cacerts" capability) with each program that speaks TLS;
 - `update`: signed update bundles, and the rule a copy on trial is judged by;
 - `opentherm`, `zwave`: the boiler link's frames, the Z-Wave Serial API;
+- `mdns`: the mDNS responder (our name and DNS-SD services, probing and conflicts), without I/O: net feeds it the datagrams;
 - `elf`, `tar`, `civil`, `atomics`: program files, the initrd, calendar time, atomic operations for ARMv5 (which has none).
 
 ## Where hardware code goes

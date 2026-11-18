@@ -54,7 +54,9 @@ const RETRY_WAIT_MS: u64 = 3000;
 /// Scan, join the best access point of `ssid`, stay connected while it
 /// lasts; then start over, waiting longer after each failure in a row.
 /// Returns only when the radio dies (or there is nothing configured).
-pub async fn serve<R: Radio>(r: &mut R, ssid: Option<&str>, psk: Option<&str>) -> Result<()> {
+/// `ht`: associate as an 802.11n (and WMM) station where the access point
+/// is one; else always as a legacy 802.11g station.
+pub async fn serve<R: Radio>(r: &mut R, ssid: Option<&str>, psk: Option<&str>, ht: bool) -> Result<()> {
     let (Some(ssid), Some(psk)) = (ssid, psk) else {
         warn!("no [wifi] ssid/psk in touchos.toml; not connecting");
         return Ok(());
@@ -75,15 +77,30 @@ pub async fn serve<R: Radio>(r: &mut R, ssid: Option<&str>, psk: Option<&str>) -
             candidates.len()
         );
         candidates.retain(|n| n.ccmp_psk);
-        let Some(bss) = candidates.first().cloned() else {
+        let Some(mut bss) = candidates.first().cloned() else {
             let wait = failures.next(NOT_FOUND_WAIT_MS);
             warn!("configured network not found (or not WPA2-PSK/CCMP); rescanning in {} s", wait / 1000);
             exec::sleep_ms(wait).await;
             continue;
         };
+        // What we ask for: HT needs a QoS association (802.11 HT STAs are
+        // QoS STAs); a legacy association asks for neither.
+        if !ht {
+            bss.ht = None;
+            bss.wmm = false;
+        }
+        if !bss.wmm {
+            bss.ht = None;
+        }
         info!(
-            "best access point: channel {}, {} dBm",
-            bss.channel, bss.rssi
+            "best access point: channel {}, {} dBm, {}",
+            bss.channel,
+            bss.rssi,
+            match (bss.ht.is_some(), bss.wmm) {
+                (true, _) => "802.11n",
+                (false, true) => "802.11g with WMM",
+                (false, false) => "802.11g",
+            }
         );
         match connect(r, bss, psk).await {
             Ok(mut station) => {
@@ -113,6 +130,8 @@ pub struct Station {
     pub aid: u16,
     mode: KeyMode,
     host_duration: bool,
+    /// A QoS (WMM) association: data goes as QoS data.
+    qos: bool,
     /// From the 4-way handshake on.
     keys: Option<Keys>,
     tx_pn: u64,
@@ -149,7 +168,7 @@ async fn send_mgmt<R: Radio>(r: &mut R, s: &Station, frame: &[u8]) -> Result<()>
 
 /// Send an Ethernet frame to the AP as a data frame; encrypted once the PTK is installed.
 async fn send_eth<R: Radio>(r: &mut R, s: &mut Station, eth: &[u8], encrypt: bool) -> Result<()> {
-    let mut f = w::eth_to_80211(eth, &s.mac, &s.bss.bssid, encrypt)
+    let mut f = w::eth_to_80211(eth, &s.mac, &s.bss.bssid, encrypt, s.qos)
         .ok_or(Error::Hw("bad Ethernet frame"))?;
     s.fill_duration(&mut f);
     if !encrypt {
@@ -167,7 +186,8 @@ async fn send_eth<R: Radio>(r: &mut R, s: &mut Station, eth: &[u8], encrypt: boo
             r.send_data(&f, Some(key)).await
         }
         KeyMode::Software => {
-            let c = ccmp::encrypt(&tk, &f[..24], s.tx_pn, 0, &f[24..]);
+            let h = w::header_len(f[0], f[1]);
+            let c = ccmp::encrypt(&tk, &f[..h], s.tx_pn, 0, &f[h..]);
             r.send_data(&c, None).await
         }
     }
@@ -193,11 +213,13 @@ async fn wait_frame<R: Radio>(
     }
 }
 
-/// A data frame from the access point, to us or to a group, as an
-/// Ethernet frame (see [`RxKeys::open`]).
-fn rx_data(s: &mut Station, f: &RxFrame, h: &Hdr) -> Option<Vec<u8>> {
-    if !h.is_data() || h.addr2 != s.bss.bssid || !(h.group() || h.addr1 == s.mac) {
-        return None;
+/// A data frame from the access point, to us or to a group we want
+/// ([`Hdr::wanted_group`]), as Ethernet frames (several from an A-MSDU; see
+/// [`RxKeys::open`]). Other groups are dropped before they cost a decryption.
+fn rx_data(s: &mut Station, f: &RxFrame, h: &Hdr) -> Vec<Vec<u8>> {
+    let to_us = h.addr1 == s.mac || (h.group() && h.wanted_group(s.mac));
+    if !h.is_data() || h.addr2 != s.bss.bssid || !to_us {
+        return Vec::new();
     }
     s.rx.open(&f.data, h, f.crypto)
 }
@@ -212,6 +234,7 @@ pub async fn connect<R: Radio>(r: &mut R, bss: Network, passphrase: &str) -> Res
         aid: 0,
         mode: caps.keys,
         host_duration: caps.host_duration,
+        qos: false,
         keys: None,
         tx_pn: 0,
         rx: RxKeys::new(caps.keys),
@@ -259,14 +282,7 @@ pub async fn connect<R: Radio>(r: &mut R, bss: Network, passphrase: &str) -> Res
     // Association.
     let group = s.bss.group_cipher.unwrap_or([0x00, 0x0f, 0xac, 4]);
     let rsn = wpa::rsn_ie(group);
-    let req = w::assoc_request(
-        &s.mac,
-        &s.bss.bssid,
-        &s.bss.ssid_raw,
-        s.bss.capability,
-        &s.bss.rates,
-        &rsn,
-    );
+    let req = w::assoc_request(&s.mac, &s.bss, &rsn);
     send_mgmt(r, &s, &req).await?;
     let resp = wait_frame(r, 1000, |f| {
         Hdr::parse(&f.data).is_some_and(|h| {
@@ -281,8 +297,19 @@ pub async fn connect<R: Radio>(r: &mut R, bss: Network, passphrase: &str) -> Res
         return Err(Error::Hw("association refused"));
     }
     s.aid = aid;
-    info!("associated, AID {}", s.aid);
-    r.associated(s.aid).await?;
+    // The access point takes us as a QoS station if its answer has the
+    // WMM Parameter element; without QoS there is no HT either.
+    s.qos = s.bss.wmm && w::has_wmm_param(w::assoc_response_ies(&resp.data));
+    if s.bss.wmm && !s.qos {
+        warn!("the access point didn't take us as a QoS station: associated as 802.11g");
+    }
+    let ht = s.qos && s.bss.ht.is_some();
+    info!(
+        "associated, AID {} ({})",
+        s.aid,
+        if ht { "802.11n" } else if s.qos { "WMM" } else { "legacy" }
+    );
+    r.associated(s.aid, ht).await?;
 
     // WPA2 4-way handshake (EAPOL-Key frames as plain data frames).
     let mut snonce = [0u8; 32];
@@ -392,15 +419,16 @@ async fn wait_eapol<R: Radio>(
         })
         .await?;
         let h = Hdr::parse(&f.data)?;
-        let eth = rx_data(s, &f, &h)?;
-        if !w::is_eapol(&eth) {
-            continue;
-        }
-        let eapol = eth[14..].to_vec();
-        if let Some(k) = wpa::parse_key_frame(&eapol)
-            && accept(&k)
-        {
-            return Some(eapol);
+        for eth in rx_data(s, &f, &h) {
+            if !w::is_eapol(&eth) {
+                continue;
+            }
+            let eapol = eth[14..].to_vec();
+            if let Some(k) = wpa::parse_key_frame(&eapol)
+                && accept(&k)
+            {
+                return Some(eapol);
+            }
         }
         if time::now_ms() > end {
             return None;
@@ -453,15 +481,20 @@ async fn pump<R: Radio>(r: &mut R, s: &mut Station) -> Ended {
                     }
                     return Ended::ByAccessPoint;
                 }
+                Some(w::FC0_MGMT_ACTION) if s.from_bss_to_me(&h) => {
+                    refuse_block_ack(r, s, &f.data).await;
+                    continue;
+                }
                 Some(_) => continue,
                 None => {}
             }
-            let Some(eth) = rx_data(s, &f, &h) else { continue };
-            if w::is_eapol(&eth) {
-                handle_rekey(r, s, &eth[14..]).await;
-                continue;
+            for eth in rx_data(s, &f, &h) {
+                if w::is_eapol(&eth) {
+                    handle_rekey(r, s, &eth[14..]).await;
+                    continue;
+                }
+                link::deliver(eth);
             }
-            link::deliver(eth);
         }
         let mut sent = 0;
         while sent < 16 {
@@ -507,6 +540,16 @@ fn tx_bit() -> usize {
             b
         }
         b => b,
+    }
+}
+
+/// An ADDBA request (an 802.11n access point that wants to send
+/// A-MPDUs): declined, so frames keep coming one at a time and in order.
+async fn refuse_block_ack<R: Radio>(r: &mut R, s: &Station, frame: &[u8]) {
+    let Some(req) = w::addba_request(frame) else { return };
+    debug!("block ack for TID {} refused", req.tid());
+    if let Err(e) = send_mgmt(r, s, &w::addba_refusal(&s.mac, &s.bss.bssid, &req)).await {
+        warn!("ADDBA response: {e}");
     }
 }
 

@@ -1,6 +1,7 @@
 //! The legacy (802.11a/b/g) rates, in 500 kbit/s units as they appear in
-//! the Supported Rates element (bit 7 set: a basic rate of the BSS), and
-//! the rates a station sends at.
+//! the Supported Rates element (bit 7 set: a basic rate of the BSS), the
+//! HT (802.11n) MCS of one spatial stream, and the rates a station sends
+//! at.
 //!
 //! The chip drivers map these to their own encodings (PLCP values, rate
 //! indexes); which rates exist and which one to use is decided here, once.
@@ -86,6 +87,43 @@ pub fn data_rates(rates: &[u8]) -> Vec<u8> {
     set
 }
 
+/// A rate to send at: legacy (500 kbit/s units, without the basic bit) or
+/// an HT MCS (0-7: one spatial stream, 20 MHz). Ordered slowest first
+/// within each kind (every legacy rate sorts before every MCS).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Rate {
+    Legacy(u8),
+    Mcs(u8),
+}
+
+impl fmt::Display for Rate {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            Rate::Legacy(r) => write!(f, "{} Mbit/s", Mbit(r)),
+            Rate::Mcs(m) => write!(f, "MCS {m}"),
+        }
+    }
+}
+
+/// MCS 4 (39 Mbit/s at 20 MHz, 43.3 with a short guard interval): where HT
+/// data starts, the HT counterpart of [`DATA_START`]'s 24 Mbit/s: one step
+/// above the 26 Mbit/s of MCS 3.
+const HT_DATA_START: u8 = 4;
+
+/// The MCS rate control may pick, slowest first: MCS 0-7 that the access
+/// point can receive (`rx_mcs`: bit n = MCS n, the first byte of its HT
+/// Capabilities' MCS set). Never empty: an access point that lists none
+/// gets MCS 0, which every HT station has.
+pub fn ht_rates(rx_mcs: u8) -> Vec<Rate> {
+    let v: Vec<Rate> = (0..8).filter(|m| rx_mcs & 1 << m != 0).map(Rate::Mcs).collect();
+    if v.is_empty() { alloc::vec![Rate::Mcs(0)] } else { v }
+}
+
+/// The MCS HT data starts at.
+pub fn ht_data_rate() -> Rate {
+    Rate::Mcs(HT_DATA_START)
+}
+
 /// A rate in Mbit/s, for the log ("5.5", "24").
 pub struct Mbit(pub u8);
 
@@ -131,6 +169,16 @@ mod tests {
         for r in [&G[..], &[0x82, 0x0c, 0x24], &[0x82, 0x84], &[]] {
             assert!(data_rates(r).contains(&data_rate(r)));
         }
+    }
+
+    #[test]
+    fn ht() {
+        assert_eq!(ht_rates(0xff), (0..8).map(Rate::Mcs).collect::<Vec<_>>());
+        assert_eq!(ht_rates(0x0f), (0..4).map(Rate::Mcs).collect::<Vec<_>>());
+        assert_eq!(ht_rates(0), [Rate::Mcs(0)]);
+        assert!(Rate::Legacy(108) < Rate::Mcs(0) && Rate::Mcs(1) < Rate::Mcs(2));
+        assert_eq!(format!("{}", Rate::Mcs(7)), "MCS 7");
+        assert_eq!(format!("{}", Rate::Legacy(11)), "5.5 Mbit/s");
     }
 
     #[test]

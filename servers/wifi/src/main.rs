@@ -61,7 +61,7 @@ async fn task() {
         return; // no chip, or it failed (logged)
     };
     let cfg = &config::get().wifi;
-    if let Err(e) = station::serve(&mut radio, cfg.ssid.as_deref(), cfg.psk.as_deref()).await {
+    if let Err(e) = station::serve(&mut radio, cfg.ssid.as_deref(), cfg.psk.as_deref(), cfg.ht).await {
         log::error!("station stopped: {e}");
         // Start over with a fresh process: the chip is reset and brought
         // up again (on the Toon also the USB port).

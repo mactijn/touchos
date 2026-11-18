@@ -65,7 +65,7 @@ export class SystemPage {
       {
         icon: s.ip ? 'wifi' : 'wifi_off',
         label: 'Network',
-        value: s.ip ?? 'no address',
+        value: s.ip ? (s.hostname ? `${s.hostname} · ${s.ip}` : s.ip) : 'no address',
         ok: !!s.ip,
       },
       {

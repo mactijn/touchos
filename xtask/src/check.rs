@@ -31,6 +31,7 @@ pub const HOST_TESTS: &[&str] = &[
     "touchos-config",
     "touchos-drv",
     "touchos-gpt",
+    "touchos-mdns",
     "touchos-http",
     "touchos-nand",
     "touchos-opentherm",

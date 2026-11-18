@@ -52,16 +52,15 @@ Nothing goes from the panel to Home Assistant yet: `servers/ha` only mirrors Hom
 
 - **Steps:**
   1. MQTT, with Home Assistant's MQTT discovery; needs a broker ([#16](https://github.com/mactijn/touchos/issues/16)).
-  2. The ESPHome native API, so no broker is needed. Until mDNS ([#24](https://github.com/mactijn/touchos/issues/24)), the panel is added by IP ([#17](https://github.com/mactijn/touchos/issues/17)).
+  2. The ESPHome native API, so no broker is needed. The bridge registers `_esphomelib._tcp` with net's mDNS (`touchos_netc::mdns_register`), so Home Assistant discovers the panel by itself ([#17](https://github.com/mactijn/touchos/issues/17)).
 
 ## First setup and factory reset
 A new panel needs its settings flashed with `cargo xtask flash --config`, or a cable and its IP: without `wifi.ssid` it has no network, and its IP is never shown on screen.
 
 - **Steps:**
   1. A setup Wi-Fi network: `touchos-XXXX`, open, only while unconfigured; the on-screen PIN pairing protects the settings. It needs an AP mode in `libs/wlan`/`libs/rt2800` (beacons, probe/auth/assoc responses, FromDS framing), and a DHCP server, catch-all DNS and captive-portal redirects in `net` ([#23](https://github.com/mactijn/touchos/issues/23)).
-  2. mDNS: `touchos-xxxx.local`, `_http._tcp`, later `_esphomelib._tcp` for the ESPHome bridge. Needs multicast in smoltcp and on the Wi-Fi chip (`DROP_MC`, see "Fewer wake-ups") ([#24](https://github.com/mactijn/touchos/issues/24)).
-  3. An on-boarding wizard in the settings page: pair, pick a Wi-Fi network from a scan, time zone, Home Assistant (optional; skipping it picks the thermostat app), Z-Wave mode ([#25](https://github.com/mactijn/touchos/issues/25)).
-  4. A factory reset: erase the whole config ring (older records keep the old PSK and token otherwise) and SetDefault on the Z-Wave chip, done at boot so a power cut can't leave it halfway. From the System page, or by holding the screen during boot ([#22](https://github.com/mactijn/touchos/issues/22)).
+  2. An on-boarding wizard in the settings page: pair, pick a Wi-Fi network from a scan, time zone, Home Assistant (optional; skipping it picks the thermostat app), Z-Wave mode ([#25](https://github.com/mactijn/touchos/issues/25)).
+  3. A factory reset: erase the whole config ring (older records keep the old PSK and token otherwise) and SetDefault on the Z-Wave chip, done at boot so a power cut can't leave it halfway. From the System page, or by holding the screen during boot ([#22](https://github.com/mactijn/touchos/issues/22)).
 
 ## Apps and weather
 The panel runs one app at a time (`ui.app`): the Home Assistant dashboard, a thermostat, and the setup screen while unconfigured. They live in one `ui` process: the screen, input, dimming, the PIN and the power menu must work the same whatever is in front, the fonts are ~800 KB per binary, and the ARM926 has only 31 FCSE pids.
@@ -92,20 +91,18 @@ The RT5370 runs as a WPA2 station; these are the loose ends.
 - **Throughput:** uploads run at about 216 KB/s, a third of a download (about 700 KB/s). Neither CCMP nor process switches turned out to be the limit for downloads. Received frames are decrypted in software: the chip can decrypt them, but it strips the packet number, so there would be no replay check. Find where the time goes first.
 
 ## 802.11n (HT)
-The RT5370 connects as a legacy 802.11g station.
-
-- **Why:** an access point in "n only" mode refuses a legacy station. HT also gives higher rates and better range.
-- **What it needs:**
-  - HT capability IEs in the association request;
-  - QoS data frames;
-  - HT rates: the TXWI PHYMODE/MCS fields, and rate control that knows them;
-  - optionally A-MPDU/block-ack.
+- **Today:** the station associates as an 802.11n (HT20, MCS 0–7) and WMM station where the access point is one (`wifi.ht`, on by default): HT Capabilities and WMM in the association request, QoS data (TID 0, best effort), HT rates with AMRR over MCS 0–7 and the short guard interval, the HT fallback and protection registers, A-MSDUs and per-TID replay counters on receive. Block-ack agreements are refused, so no A-MPDUs.
+- **Open:**
+  - Run it on the Toon: an access point in mixed and in "n only" mode, the throughput and retries against 802.11g, and a monitor-mode capture of the QoS frames and the ADDBA refusal ([#6](https://github.com/mactijn/touchos/issues/6)).
+  - A-MPDU: receiving needs a block-ack agreement, a reorder buffer before the replay check, and the chip's BA session table; sending, the TXWI AMPDU fields and MAX_LEN_CFG.
+  - The access point's WMM parameters (EDCA) are not applied: the chip's defaults are the standard best-effort values, and everything goes as best effort.
+  - The HT protection mode comes from the beacon at join; later changes (an 802.11g station arriving) aren't followed.
 
 ## Fewer wake-ups
 Drivers get interrupts (`IRQ_CLAIM`/`IRQ_BIND`/`IRQ_ACK`) and servers wait for events instead of polling on timers; idle, the Toon runs about 50 process switches a second. The kernel logs who was switched to most every minute (`runs/s:`). What's left:
 
 - `wifi` is still the biggest: every frame of our network (beacons, broadcasts, our own traffic) is a wake-up.
-- The Wi-Fi chip drops multicast while joined (DROP_MC). IPv6 or mDNS ([#24](https://github.com/mactijn/touchos/issues/24)) would need it back, with a multicast filter.
+- Multicast is on for mDNS: the Wi-Fi chip has no per-group filter, so it passes every group frame of our network, and the station drops all but broadcast and 224.0.0.251 before decrypting them. Other groups (SSDP, IPv6) still wake `wifi`, but not `net`. The FEC's hash filter lets only the mDNS group through.
 - `net` ships the kernel log over UDP from its loop, so log lines can leave up to 500 ms late.
 - The `web` and `ntp` loops still sleep in short steps while they wait (rare).
 

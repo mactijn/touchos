@@ -17,8 +17,11 @@
 //! they reach the access point wherever its beacons reach us. Data starts
 //! at 24 Mbit/s (or the fastest OFDM rate below it the access point has);
 //! from there AMRR moves it between the access point's OFDM rates by the
-//! chip's TX statistics, as run(4) does. Within a frame's retries the
-//! chip steps down by itself (`Rt2800::join` sets the fallback).
+//! chip's TX statistics, as run(4) does. Associated as an 802.11n
+//! station, data starts at MCS 4 instead and AMRR moves it between MCS 0
+//! and 7 (with the short guard interval when the access point takes it).
+//! Within a frame's retries the chip steps down by itself (`Rt2800::join`
+//! sets the fallback).
 
 use ::log::{debug, info, warn};
 use alloc::format;
@@ -30,10 +33,10 @@ use touchos_rt::{exec, time};
 use touchos_usb::{Device, HostController};
 
 use crate::regs::RXD_DEC;
-use crate::{Join, Rt2800, TxCounters};
+use crate::{HtJoin, Join, Rt2800, TxCounters};
 use touchos_wlan::amrr::{Amrr, Step};
 use touchos_wlan::radio::{Caps, KeyMode, Radio, RxCrypto, RxFrame, TxKey};
-use touchos_wlan::rates::{self, Mbit};
+use touchos_wlan::rates::{self, Mbit, Rate};
 use touchos_wlan::scan::{CHANNELS_2GHZ, Network, host_scan};
 use touchos_wlan::{Error, Mac, Result};
 
@@ -58,7 +61,10 @@ pub struct Rt5370<H: HostController> {
     chip: Rt2800,
     mgmt_rate: u8,
     /// The data rate, chosen from the TX statistics.
-    amrr: Amrr,
+    amrr: Amrr<Rate>,
+    /// The access point's MCS (HT Capabilities), while joining an 802.11n
+    /// access point; HT rates are used once associated as HT.
+    ht_mcs: Option<u8>,
     next_tick: u64,
     dead: bool,
     /// The chip's TX statistics since the join.
@@ -82,12 +88,13 @@ impl<H: HostController> Rt5370<H> {
             dev,
             chip,
             mgmt_rate: 2,
-            amrr: Amrr::new(rates::data_rates(&[]), 2),
+            amrr: legacy_amrr(&[]),
+            ht_mcs: None,
             next_tick: 0,
             dead: false,
             since_join: TxCounters::default(),
             last_mgmt: None,
-            window: Window::new(2),
+            window: Window::new(Rate::Legacy(2)),
             window_end: 0,
             first_window: true,
             irq: None,
@@ -140,7 +147,7 @@ impl<H: HostController> Rt5370<H> {
         Error::Hw("RT5370 failed")
     }
 
-    async fn send(&mut self, frame: &[u8], rate: u8, ccmp: Option<[u8; 8]>) -> Result<()> {
+    async fn send(&mut self, frame: &[u8], rate: Rate, ccmp: Option<[u8; 8]>) -> Result<()> {
         // Unicast (all we send: to the access point) waits for an ACK.
         let ack = frame.len() >= 10 && frame[4] & 1 == 0;
         let r = self.chip.send(&mut self.hc, &mut self.dev, frame, rate, ack, ccmp).await;
@@ -202,7 +209,7 @@ impl<H: HostController> Rt5370<H> {
         let old = self.amrr.rate();
         if let Some(step) = self.amrr.choose() {
             let new = self.amrr.rate();
-            debug!("rt2800: data rate {} -> {} Mbit/s ({retries} retries in {tx} transmissions)", Mbit(old), Mbit(new));
+            debug!("rt2800: data rate {old} -> {new} ({retries} retries in {tx} transmissions)");
             self.window.note(step, new);
         }
         if now >= self.window_end {
@@ -222,14 +229,14 @@ impl<H: HostController> Rt5370<H> {
         let w = &self.window;
         let usb = self.chip.tx_stats().map_or(0, |s| s.usb_errors);
         let line = format!(
-            "rt2800: TX at {} Mbit/s, last {} s: {} ok, {} failed (no ACK), {} retries, rate {}-{} Mbit/s ({} up, {} down); {} USB errors so far",
-            Mbit(self.amrr.rate()),
+            "rt2800: TX at {}, last {} s: {} ok, {} failed (no ACK), {} retries, rate {} to {} ({} up, {} down); {} USB errors so far",
+            self.amrr.rate(),
             STATS_EVERY_MS / 1000,
             w.tx.ok,
             w.tx.failed,
             w.tx.retries,
-            Mbit(w.slowest),
-            Mbit(w.fastest),
+            w.slowest,
+            w.fastest,
             w.ups,
             w.downs,
             usb
@@ -249,22 +256,28 @@ fn ccmp_header(pn: u64, key_id: u8) -> [u8; 8] {
     [p[0], p[1], 0, 0x20 | key_id << 6, p[2], p[3], p[4], p[5]]
 }
 
+/// Rate control over the legacy rates of a BSS (`rates`: as advertised).
+fn legacy_amrr(rates: &[u8]) -> Amrr<Rate> {
+    let data = rates::data_rates(rates).into_iter().map(Rate::Legacy).collect();
+    Amrr::new(data, Rate::Legacy(rates::data_rate(rates)))
+}
+
 /// The TX statistics of one log period.
 struct Window {
     tx: TxCounters,
     /// The data rates used, and the steps between them.
-    slowest: u8,
-    fastest: u8,
+    slowest: Rate,
+    fastest: Rate,
     ups: u32,
     downs: u32,
 }
 
 impl Window {
-    fn new(rate: u8) -> Window {
+    fn new(rate: Rate) -> Window {
         Window { tx: TxCounters::default(), slowest: rate, fastest: rate, ups: 0, downs: 0 }
     }
 
-    fn note(&mut self, step: Step, rate: u8) {
+    fn note(&mut self, step: Step, rate: Rate) {
         match step {
             Step::Up => self.ups += 1,
             Step::Down => self.downs += 1,
@@ -318,12 +331,15 @@ impl<H: HostController> Radio for Rt5370<H> {
             short_preamble: bss.capability & 0x20 != 0,
             short_slot: bss.capability & 0x400 != 0,
             ofdm: bss.rates.iter().any(|&r| rates::is_ofdm(r)),
+            erp_protection: bss.erp_protection,
+            ht: bss.ht.map(|h| HtJoin { sgi: h.sgi20, protection: h.protection }),
         };
         // The station computes durations with the same management rate.
         self.mgmt_rate = rates::lowest_basic(&bss.rates, bss.channel);
         let data = rates::data_rates(&bss.rates);
         let (slowest, fastest) = (data[0], data[data.len() - 1]);
-        self.amrr = Amrr::new(data, rates::data_rate(&bss.rates));
+        self.amrr = legacy_amrr(&bss.rates);
+        self.ht_mcs = bss.ht.map(|h| h.rx_mcs);
         let r = self.chip.join(&mut self.hc, &mut self.dev, &j).await;
         r.map_err(|e| self.fail(e))?;
         self.since_join = TxCounters::default();
@@ -332,11 +348,11 @@ impl<H: HostController> Radio for Rt5370<H> {
         self.next_tick = 0;
         self.first_window = true;
         info!(
-            "rt2800: joining {} on channel {}: management frames at {} Mbit/s, data at {} Mbit/s (rate control {}-{}), {} preamble, {} slot",
+            "rt2800: joining {} on channel {}: management frames at {} Mbit/s, data at {} (rate control {}-{} Mbit/s), {} preamble, {} slot",
             Mac(&j.bssid),
             j.channel,
             Mbit(self.mgmt_rate),
-            Mbit(self.amrr.rate()),
+            self.amrr.rate(),
             Mbit(slowest),
             Mbit(fastest),
             if j.short_preamble { "short" } else { "long" },
@@ -345,15 +361,26 @@ impl<H: HostController> Radio for Rt5370<H> {
         Ok(())
     }
 
-    async fn associated(&mut self, _aid: u16) -> Result<()> {
+    async fn associated(&mut self, _aid: u16, ht: bool) -> Result<()> {
         let r = self.chip.associated(&mut self.hc, &mut self.dev).await;
         r.map_err(|e| self.fail(e))?;
         info!("rt2800: TSF synchronised to the access point's beacons, link LED on");
+        if let (true, Some(mcs)) = (ht, self.ht_mcs) {
+            let set = rates::ht_rates(mcs);
+            let (slowest, fastest) = (set[0], set[set.len() - 1]);
+            self.amrr = Amrr::new(set, rates::ht_data_rate());
+            let sgi = self.chip.joined().and_then(|j| j.ht).is_some_and(|h| h.sgi);
+            info!(
+                "rt2800: 802.11n: data at {} (rate control {slowest} to {fastest}), {} guard interval",
+                self.amrr.rate(),
+                if sgi { "short" } else { "long" }
+            );
+        }
         Ok(())
     }
 
     async fn send_mgmt(&mut self, frame: &[u8]) -> Result<()> {
-        self.send(frame, self.mgmt_rate, None).await?;
+        self.send(frame, Rate::Legacy(self.mgmt_rate), None).await?;
         self.mgmt_result(frame[0]).await;
         Ok(())
     }
@@ -362,7 +389,7 @@ impl<H: HostController> Radio for Rt5370<H> {
         // Unprotected data frames are the handshake's EAPOL frames: at the
         // management rate, as mac80211 sends them.
         let protected = key.is_some() || (frame.len() > 1 && frame[1] & 0x40 != 0);
-        let rate = if protected { self.amrr.rate() } else { self.mgmt_rate };
+        let rate = if protected { self.amrr.rate() } else { Rate::Legacy(self.mgmt_rate) };
         let ccmp = key.map(|k| ccmp_header(k.pn, k.key_id));
         self.send(frame, rate, ccmp).await?;
         if protected {
