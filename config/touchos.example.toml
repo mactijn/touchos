@@ -15,6 +15,7 @@ token = "PASTE-TOKEN-HERE"
 # WPA2-PSK with AES only. Leave this section out to use the Ethernet port.
 # ssid = "MyNetwork"
 # psk = "my wifi password"
+# ht = false            # connect as an 802.11g device even where the access point does 802.11n
 
 [debug]
 # Optional: send the kernel log as UDP lines to your PC (`cargo xtask log` receives them).

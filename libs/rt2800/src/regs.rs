@@ -68,6 +68,9 @@ pub const TX_RTS_CFG: u16 = 0x1344;
 pub const TX_TIMEOUT_CFG: u16 = 0x1348;
 pub const TX_RTY_CFG: u16 = 0x134c;
 pub const TX_LINK_CFG: u16 = 0x1350;
+/// HT rate fallback on retries: MCS 0-7 (CFG0) and 8-15 (CFG1), 4 bits each.
+pub const HT_FBK_CFG0: u16 = 0x1354;
+pub const HT_FBK_CFG1: u16 = 0x1358;
 /// Legacy rate fallback on retries: OFDM (CFG0) and CCK (CFG1).
 pub const LG_FBK_CFG0: u16 = 0x135c;
 pub const LG_FBK_CFG1: u16 = 0x1360;
@@ -239,7 +242,18 @@ pub const TXWI_TXOP_BACKOFF: u8 = 3;
 /// TXWI PHY word: the modulation, short preamble (CCK), the rate.
 pub const PHY_CCK: u16 = 0 << 14;
 pub const PHY_OFDM: u16 = 1 << 14;
+/// HT mixed mode (a legacy preamble first, so 802.11g stations defer).
+pub const PHY_HT_MIX: u16 = 2 << 14;
 pub const PHY_SHPRE: u16 = 1 << 3;
+/// HT: the short (400 ns) guard interval.
+pub const PHY_SGI: u16 = 1 << 8;
+// MM20_PROT_CFG and GF20_PROT_CFG: the protection of HT frames (Linux's
+// rt2800.h): the rate (PHY word) of the RTS/CTS in the low half, the
+// mode in bits 16-17.
+pub const PROT_RATE_MASK: u32 = 0xffff;
+pub const PROT_CTRL_MASK: u32 = 3 << 16;
+/// RTS/CTS before each HT frame.
+pub const PROT_CTRL_RTS_CTS: u32 = 1 << 16;
 /// TXWI xflags: the chip assigns the sequence number.
 pub const TXWI_NSEQ: u8 = 1 << 1;
 /// TXWI xflags: wait for an ACK (and retry without one).

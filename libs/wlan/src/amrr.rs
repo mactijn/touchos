@@ -17,7 +17,9 @@
 
 //! AMRR rate control (Adaptive Multi Rate Retry; Lacage, Manshaei and
 //! Turletti, 2004): a port of OpenBSD's `ieee80211_amrr.c` (ISC license
-//! above), the legacy-rate part, with the thresholds its run(4) uses.
+//! above), with the thresholds its run(4) uses. It steps through any
+//! ordered list of rates: the legacy rates, or the HT MCS (as OpenBSD's
+//! does for an HT node).
 //!
 //! For chips that report only totals (frames sent, retries, failures)
 //! rather than a result per frame: when few frames needed a retry, step up
@@ -46,11 +48,12 @@ pub enum Step {
     Down,
 }
 
-/// One peer's rate (a station has one: its access point).
+/// One peer's rate (a station has one: its access point). `R` is the rate
+/// type: `u8` in 500 kbit/s units, or [`crate::rates::Rate`].
 #[derive(Debug, Clone)]
-pub struct Amrr {
-    /// The rates to choose from, slowest first (500 kbit/s units).
-    rates: Vec<u8>,
+pub struct Amrr<R = u8> {
+    /// The rates to choose from, slowest first.
+    rates: Vec<R>,
     /// Index of the rate in use.
     cur: usize,
     /// Good periods in a row.
@@ -63,11 +66,11 @@ pub struct Amrr {
     retrycnt: u32,
 }
 
-impl Amrr {
+impl<R: Copy + PartialOrd> Amrr<R> {
     /// Rate control over `rates` (slowest first, not empty), starting at
     /// `start` (or the nearest rate below it in the set).
     /// (`ieee80211_amrr_node_init`; OpenBSD starts at the lowest rate.)
-    pub fn new(rates: Vec<u8>, start: u8) -> Amrr {
+    pub fn new(rates: Vec<R>, start: R) -> Amrr<R> {
         assert!(!rates.is_empty());
         let cur = rates.iter().rposition(|&r| r <= start).unwrap_or(0);
         Amrr {
@@ -82,7 +85,7 @@ impl Amrr {
     }
 
     /// The rate to send data at.
-    pub fn rate(&self) -> u8 {
+    pub fn rate(&self) -> R {
         self.rates[self.cur]
     }
 

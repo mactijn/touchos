@@ -50,6 +50,7 @@ Saving can be turned off on the kernel command line (`storage=`):
 | `homeassistant.tls` | TLS on port 443 only | Connect with TLS (`wss://`). The certificate must chain to a root in Mozilla's root store (`libs/certs/cacerts.txt`), as a browser's would. |
 | `wifi.ssid` | | The Wi-Fi network. Only WPA2-PSK with AES is supported. Without it, the panel uses Ethernet. |
 | `wifi.psk` | | The Wi-Fi password (8-63 characters). |
+| `wifi.ht` | `true` | Connect as an 802.11n (and WMM) device where the access point is one: faster, and needed for an access point in "n only" mode. Off: as an 802.11g device, as touchos did before. |
 | `display.brightness` | `80` | Backlight in percent while the panel is in use. |
 | `display.dim_brightness` | `15` | Backlight in percent after a while without touches. |
 | `display.dim_after_seconds` | `60` | How long without touches before the screen dims. |
