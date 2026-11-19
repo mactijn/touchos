@@ -59,7 +59,7 @@ pub async fn task(calls: Shared<Ring>) {
             continue;
         };
         let port = ha.port;
-        net::wait_configured().await;
+        net::wait_online().await;
         info!("connecting to {host}:{port}");
         let t0 = time::now_ms();
         let r = session(&host, port, &token, &calls).await;

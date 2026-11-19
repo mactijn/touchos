@@ -1,0 +1,13 @@
+[package]
+name = "touchos-setupnet"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+description = "The setup network's servers, without I/O: a small DHCP server and a DNS server that answers every name with the panel"
+
+[lib]
+bench = false
+
+[dependencies]
+touchos-mdns = { path = "../mdns" }

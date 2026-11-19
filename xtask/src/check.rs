@@ -39,6 +39,7 @@ pub const HOST_TESTS: &[&str] = &[
     "touchos-hass",
     "touchos-elf",
     "touchos-rt2800",
+    "touchos-setupnet",
     "touchos-storage",
     "touchos-tar",
     "touchos-update",
