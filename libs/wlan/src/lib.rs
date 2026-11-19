@@ -26,6 +26,7 @@
 extern crate alloc;
 
 pub mod amrr;
+pub mod ap;
 pub mod backoff;
 pub mod ccmp;
 pub mod ieee80211;

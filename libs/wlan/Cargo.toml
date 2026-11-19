@@ -22,3 +22,4 @@ aes = { version = "0.9", default-features = false }
 [target.'cfg(target_os = "none")'.dependencies]
 touchos-rt = { path = "../rt" }
 touchos-drv = { path = "../drv" }
+touchos-proto = { path = "../proto" }

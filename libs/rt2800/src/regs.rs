@@ -152,6 +152,9 @@ pub const BBP_CSR_READ: u32 = 1 << 16;
 pub const BCN_TX_EN: u32 = 1 << 20;
 pub const TBTT_TIMER_EN: u32 = 1 << 19;
 pub const TSF_SYNC_MODE_STA: u32 = 1 << 17;
+/// An access point: the TSF syncs with nobody (rt2860.c's
+/// `rt2860_enable_tsf_sync` for HOSTAP).
+pub const TSF_SYNC_MODE_HOSTAP: u32 = 3 << 17;
 pub const TSF_TIMER_EN: u32 = 1 << 16;
 /// The beacon interval field: in units of 1/16 TU.
 pub const BCN_INTVAL_MASK: u32 = 0xffff;
@@ -254,6 +257,14 @@ pub const PROT_RATE_MASK: u32 = 0xffff;
 pub const PROT_CTRL_MASK: u32 = 3 << 16;
 /// RTS/CTS before each HT frame.
 pub const PROT_CTRL_RTS_CTS: u32 = 1 << 16;
+/// TXWI flags: the chip writes the TSF into the frame's timestamp (beacons).
+pub const TXWI_TS: u8 = 1 << 3;
+/// TXWI txop: HT (no backoff; what rt2860.c's beacons have).
+pub const TXWI_TXOP_HT: u8 = 0;
+/// Beacon slot 0 in the chip's memory (`RT2860_BCN_BASE(0)`; BCN_OFFSET0's
+/// low byte 0xe0 × 64 from 0x4000), 512 bytes.
+pub const BCN_BASE0: u16 = 0x7800;
+pub const BCN_SIZE: usize = 512;
 /// TXWI xflags: the chip assigns the sequence number.
 pub const TXWI_NSEQ: u8 = 1 << 1;
 /// TXWI xflags: wait for an ACK (and retry without one).

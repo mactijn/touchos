@@ -140,6 +140,20 @@ pub trait Radio {
     }
 
     /// Leave the BSS and get back to the state after bring-up, for a fresh
-    /// attempt.
+    /// attempt (also: stop being an access point).
     async fn reset(&mut self) -> Result<()>;
+
+    /// Become an open 802.11g access point on `channel` with our MAC as
+    /// the BSSID, sending `beacon` (the whole frame; the radio fills in its
+    /// timestamp) every `ap::BEACON_INTERVAL`. From then on `recv` brings
+    /// probe requests and the frames to us. [`Radio::reset`] ends it.
+    async fn start_ap(&mut self, _channel: u8, _beacon: &[u8]) -> Result<()> {
+        Err(Error::Hw("this radio can't be an access point"))
+    }
+
+    /// Send a frame as the access point: a unicast one is acknowledged and
+    /// retried, a group frame goes once at the lowest rate.
+    async fn send_ap(&mut self, _frame: &[u8]) -> Result<()> {
+        Err(Error::Hw("this radio can't be an access point"))
+    }
 }
