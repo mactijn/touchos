@@ -73,11 +73,9 @@ The panel runs one app at a time (`ui.app`): the Home Assistant dashboard, a the
   4. The thermostat app (`ui.app = "thermostat"`): the thermostat, a clock and the weather, no Home Assistant needed. Depends on the thermostat ([#19](https://github.com/mactijn/touchos/issues/19)) ([#28](https://github.com/mactijn/touchos/issues/28)).
 
 ## Monitoring
-The kernel's figures (switches, idle, free memory, the busiest threads) are only in the log, and no syscall lets user space read them.
-
-- **Steps:**
-  1. A stats syscall (CPU time and switches per thread, memory per process, IRQ counts), metrics boards for the servers' counters, and `/metrics` in the Prometheus format, opt-in and without a session ([#20](https://github.com/mactijn/touchos/issues/20)).
-  2. A process overview on the System page: CPU, switches/s, memory and restarts per process ([#21](https://github.com/mactijn/touchos/issues/21)).
+- **Today:** the `STATS` syscall gives web the kernel's figures (CPU time and switches per thread, memory per process, IRQ counts, the heap); net, wifi, ha and init write their counters on metrics boards; `/metrics` serves it all in the Prometheus format, opt-in and without a session ([docs/metrics.md](docs/metrics.md)).
+- **Next:** a process overview on the System page: CPU, switches/s, memory and restarts per process ([#21](https://github.com/mactijn/touchos/issues/21)).
+- **Later:** zwave (frames, retransmits, NAKs), boiler (frames, line errors) and storage (NAND reads, writes, erases, ECC corrections) on metrics boards of their own.
 
 ## TLS
 - **Today:** rustls (TLS 1.2 and 1.3) without `std`, through its unbuffered API (`libs/netc/src/tls.rs`), with the RustCrypto provider. rustls-webpki checks certificates against Mozilla's root store (`libs/certs/cacerts.der`, shared by init as the "cacerts" capability).

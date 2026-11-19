@@ -69,6 +69,7 @@ Saving can be turned off on the kernel command line (`storage=`):
 | `web.enabled` | `true` | Serve the settings page. |
 | `web.port` | `80` | TCP port of the settings page. |
 | `web.session_hours` | `168` | How long a paired browser stays signed in. |
+| `metrics.enabled` | `false` | Serve `/metrics` in the Prometheus text format, without a session: anyone on the network can read the panel's figures, but change nothing. See [metrics.md](metrics.md). |
 | `[[tile]]` `entity`, `name` | automatic tiles | Dashboard tiles in this order: a Home Assistant entity id (`light.kitchen`) and an optional label. |
 
 An example:
