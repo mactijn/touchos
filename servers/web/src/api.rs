@@ -198,6 +198,7 @@ fn schema() -> Json {
             ["time", "Time"],
             ["net", "Network"],
             ["web", "Web interface"],
+            ["metrics", "Metrics"],
             ["debug", "Debugging"],
         ],
         "fields": FIELDS.iter().filter(|f| !f.hidden).map(field_json).collect::<Vec<_>>(),

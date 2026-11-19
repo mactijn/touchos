@@ -20,6 +20,7 @@ pub struct Config {
     pub dashboard: Dashboard,
     pub debug: Debug,
     pub web: Web,
+    pub metrics: Metrics,
     /// `[[tile]]` list; empty = automatic tiles from `dashboard.types`.
     pub tiles: Vec<Tile>,
 }
@@ -96,6 +97,12 @@ pub struct Debug {
     /// Write pairing PINs to the log (development: `cargo xtask pair`).
     pub log_pin: bool,
     pub http_test: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Metrics {
+    /// Serve `/metrics` (Prometheus), without a session.
+    pub enabled: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -326,6 +333,9 @@ impl Config {
                 port: int("web.port") as u16,
                 session_hours: int("web.session_hours") as u32,
             },
+            metrics: Metrics {
+                enabled: v.get("metrics.enabled").and_then(Value::as_bool).unwrap_or(false),
+            },
             tiles,
         };
         (cfg, issues)
@@ -361,6 +371,7 @@ mod tests {
         assert_eq!(c.debug.log_host, None);
         assert!(!c.debug.log_pin);
         assert!(c.web.enabled);
+        assert!(!c.metrics.enabled);
         assert_eq!(c.web.port, 80);
         assert!(c.wifi.ht);
         assert!(c.tiles.is_empty());

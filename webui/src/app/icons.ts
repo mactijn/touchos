@@ -38,6 +38,7 @@ import iconLan from '@material-symbols/svg-400/outlined/lan.svg';
 import iconPassword from '@material-symbols/svg-400/outlined/password.svg';
 import iconTimer from '@material-symbols/svg-400/outlined/timer.svg';
 import iconDeployedCode from '@material-symbols/svg-400/outlined/deployed_code.svg';
+import iconMonitoring from '@material-symbols/svg-400/outlined/monitoring.svg';
 
 const ICONS: Record<string, string> = {
   menu: iconMenu,
@@ -73,6 +74,7 @@ const ICONS: Record<string, string> = {
   password: iconPassword,
   timer: iconTimer,
   deployed_code: iconDeployedCode,
+  monitoring: iconMonitoring,
 };
 
 /** Register them for <mat-icon svgIcon="name">. */

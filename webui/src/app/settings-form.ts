@@ -25,6 +25,7 @@ const SECTION_ICONS: Record<string, string> = {
   dashboard: 'space_dashboard',
   time: 'schedule',
   web: 'language',
+  metrics: 'monitoring',
   debug: 'bug_report',
 };
 

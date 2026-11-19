@@ -366,6 +366,15 @@ pub static FIELDS: &[Field] = &[
         "How long a paired browser stays logged in.",
         Live,
     ),
+    // [metrics]
+    f(
+        "metrics.enabled",
+        Kind::Bool,
+        D::Bool(false),
+        "Prometheus endpoint",
+        "Serve /metrics in the Prometheus text format, without a session: anyone on the network can read the panel's figures (uptime, CPU and memory per process, network and Wi-Fi counters), but change nothing.",
+        Live,
+    ),
 ];
 
 /// Keys of each `[[tile]]`.
