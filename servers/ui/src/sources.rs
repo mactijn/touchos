@@ -150,6 +150,8 @@ pub mod net {
 
     pub struct Net {
         pub ipv4: Option<([u8; 4], u8)>,
+        /// The setup network is up: its SSID.
+        pub setup_ap: Option<touchos_proto::net::HostName>,
     }
 
     static CUR: spin::Mutex<(u64, Status)> = spin::Mutex::new((
@@ -158,6 +160,7 @@ pub mod net {
             ipv4: None,
             generation: 0,
             hostname: touchos_proto::net::HostName::EMPTY,
+            setup_ap: None,
         },
     ));
 
@@ -168,7 +171,7 @@ pub mod net {
         if let Some(st) = shm.net.read_as::<Status>(&mut g.0, &mut buf) {
             g.1 = st;
         }
-        Some(f(&Net { ipv4: g.1.ipv4 }))
+        Some(f(&Net { ipv4: g.1.ipv4, setup_ap: g.1.setup_ap }))
     }
 }
 

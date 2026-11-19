@@ -71,6 +71,9 @@ async fn read_request(s: &mut TcpStream) -> Result<Incoming, u16> {
         match http::parse_head(&buf) {
             // An update: its body goes straight into shared memory.
             Ok((req, head_len, len)) if req.method == "POST" && req.path == "/api/update" => {
+                if let Some(r) = setup_redirect(&req) {
+                    return Ok(Incoming::Done(r));
+                }
                 let already = buf.split_off(head_len);
                 return Ok(Incoming::Done(upload(s, req, already, len).await));
             }
@@ -161,6 +164,21 @@ async fn receive(s: &mut TcpStream, mem: u32, already: Vec<u8>, len: usize) -> R
     Ok(())
 }
 
+/// On the setup network (net's status says so): the captive portal. Every
+/// DNS name leads here there, so phones' connectivity checks and requests
+/// for other hosts are sent to the setup page, and only the panel's own
+/// address and names are served.
+fn setup_redirect(req: &Request) -> Option<Response> {
+    let st = touchos_netc::status()?;
+    st.setup_ap?;
+    let (ip, _) = st.ipv4?;
+    let addr = format!("{}.{}.{}.{}", ip[0], ip[1], ip[2], ip[3]);
+    let host = st.hostname.as_str();
+    let local = format!("{host}.local");
+    let to = format!("http://{addr}/setup");
+    http::captive_redirect(req, &[addr.as_str(), local.as_str(), host], &to)
+}
+
 /// Changes must come from our own page (custom header, same origin), as
 /// JSON.
 fn csrf_ok(req: &Request) -> bool {
@@ -210,7 +228,9 @@ async fn serve_conn(mut s: TcpStream) {
         Ok(Incoming::Request(req)) => {
             let api = req.path.starts_with("/api/");
             let mutating = matches!(req.method.as_str(), "POST" | "PATCH" | "PUT" | "DELETE");
-            let r = if mutating && !csrf_ok(&req) {
+            let r = if let Some(r) = setup_redirect(&req) {
+                r
+            } else if mutating && !csrf_ok(&req) {
                 error(
                     403,
                     "request refused (missing X-Touchos header or wrong origin)",

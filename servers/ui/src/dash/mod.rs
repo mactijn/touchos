@@ -267,7 +267,7 @@ pub async fn task(mut fb: Framebuffer) {
     // What the last frame showed of the outside world: the entities on the
     // page and (HA connected, network address).
     let mut drawn_entities: Vec<Option<ha::Entity>> = Vec::new();
-    let mut drawn_status = (false, false);
+    let mut drawn_status = (false, false, false);
     let mut tiles_for_registry: Option<u64> = None;
     let mut dirty = true;
     // A touch that only woke the screen is ignored until the finger lifts.
@@ -440,7 +440,11 @@ pub async fn task(mut fb: Framebuffer) {
         if version != drawn_version && ui.gesture == Gesture::None && ui.preview.take().is_some() {
             dirty = true; // the real state has arrived
         }
-        let status = (connected, net::with(|n| n.ipv4.is_some()).unwrap_or(false));
+        let status = (
+            connected,
+            net::with(|n| n.ipv4.is_some()).unwrap_or(false),
+            net::with(|n| n.setup_ap.is_some()).unwrap_or(false),
+        );
         if status != drawn_status || ui.pointer_visible() != ui.pointer_drawn {
             dirty = true;
         }
