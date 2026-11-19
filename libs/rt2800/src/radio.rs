@@ -67,8 +67,9 @@ pub struct Rt5370<H: HostController> {
     ht_mcs: Option<u8>,
     next_tick: u64,
     dead: bool,
-    /// The chip's TX statistics since the join.
+    /// The chip's TX statistics since the join, and since bring-up.
     since_join: TxCounters,
+    total: TxCounters,
     /// What became of the last management frame (None: no result).
     last_mgmt: Option<TxCounters>,
     /// The statistics window while sending data, and when it ends (0:
@@ -93,6 +94,7 @@ impl<H: HostController> Rt5370<H> {
             next_tick: 0,
             dead: false,
             since_join: TxCounters::default(),
+            total: TxCounters::default(),
             last_mgmt: None,
             window: Window::new(Rate::Legacy(2)),
             window_end: 0,
@@ -158,6 +160,7 @@ impl<H: HostController> Rt5370<H> {
         let r = self.chip.tx_counters(&mut self.hc, &mut self.dev).await;
         let c = r.map_err(|e| self.fail(e)).ok()?;
         self.since_join.add(c);
+        self.total.add(c);
         self.window.tx.add(c);
         Some(c)
     }
@@ -421,6 +424,23 @@ impl<H: HostController> Radio for Rt5370<H> {
         r.map_err(|e| self.fail(e))?;
         info!("rt2800: pairwise key in the chip: it encrypts what we send");
         Ok(())
+    }
+
+    fn counters(&self) -> touchos_wlan::radio::Counters {
+        let rx = self.chip.stats();
+        let tx = self.chip.tx_stats().unwrap_or_default();
+        touchos_wlan::radio::Counters {
+            rx_frames: rx.frames,
+            rx_crc_errors: rx.crc_errors,
+            rx_malformed: rx.malformed,
+            rx_usb_errors: rx.usb_errors,
+            tx_frames: tx.frames,
+            tx_usb_errors: tx.usb_errors,
+            tx_ok: self.total.ok,
+            tx_failed: self.total.failed,
+            tx_retries: self.total.retries,
+            rate_kbps: if self.chip.joined().is_some() { self.amrr.rate().kbps() } else { 0 },
+        }
     }
 
     fn tx_report(&self) -> String {

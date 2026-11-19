@@ -21,6 +21,13 @@ pub struct Child {
     restarts: Vec<u64>,
     /// Crashed too often: not restarted any more.
     pub gave_up: bool,
+    /// Since boot, for the metrics: times it was started again, and
+    /// times it failed.
+    pub restarts_total: u32,
+    pub crashes_total: u32,
+    /// How it ended last ("exit", "crash" or "killed") and the exit code
+    /// or CPU exception.
+    pub last_exit: Option<(&'static str, u32)>,
 }
 
 /// Programs the panel can't do without: if one of them gives up, init stops
@@ -70,6 +77,9 @@ impl Init {
                     restart_at: None,
                     restarts: Vec::new(),
                     gave_up: false,
+                    restarts_total: 0,
+                    crashes_total: 0,
+                    last_exit: None,
                 })
                 .collect(),
         }
@@ -90,6 +100,7 @@ impl Init {
             }
             if self.children[i].restart_at.is_some_and(|t| t <= now) {
                 self.children[i].restart_at = None;
+                self.children[i].restarts_total += 1;
                 self.start(i);
                 restarted(self.children[i].prog.name);
             }
@@ -135,6 +146,12 @@ impl Init {
         let _ = sys::cap_drop(p);
         let ok = st == status::EXITED && code == 0;
         let test_crash = self.test_crash == Some(c.prog.name);
+        c.last_exit = Some(match (st, code) {
+            (status::EXITED, code) => ("exit", code as u32),
+            (_, status::KILLED_BY_REQUEST) if !test_crash => ("killed", 0),
+            (_, status::KILLED_BY_REQUEST) => ("crash", 0),
+            (_, vector) => ("crash", vector as u32),
+        });
         // A restart it asked for: at once, and not a failure (a few times).
         if st == status::EXITED && code == touchos_abi::exit::RESTART && c.prog.policy == Policy::Restart {
             c.restarts.retain(|&t| now - t < GIVE_UP_WINDOW);
@@ -159,6 +176,7 @@ impl Init {
             return;
         }
         self.failures += 1;
+        c.crashes_total += 1;
         c.crashes.retain(|&t| now - t < GIVE_UP_WINDOW);
         c.crashes.push(now);
         if c.crashes.len() >= GIVE_UP_CRASHES {
@@ -177,3 +195,21 @@ impl Init {
     }
 }
 
+
+impl Init {
+    /// What init publishes about the programs (its metrics board).
+    pub fn metrics(&self) -> touchos_proto::metrics::Metrics {
+        let mut m = touchos_proto::metrics::Metrics::new();
+        for c in &self.children {
+            let l = [("server", c.prog.name)];
+            m.with("touchos_server_up", &l, c.proc.is_some() as i64)
+                .with("touchos_server_gave_up", &l, c.gave_up as i64)
+                .with("touchos_server_restarts_total", &l, c.restarts_total as i64)
+                .with("touchos_server_crashes_total", &l, c.crashes_total as i64);
+            if let Some((how, code)) = c.last_exit {
+                m.with("touchos_server_last_exit", &[("server", c.prog.name), ("how", how)], code as i64);
+            }
+        }
+        m
+    }
+}

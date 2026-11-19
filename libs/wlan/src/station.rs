@@ -6,14 +6,14 @@
 
 use ::log::{debug, info, warn};
 use alloc::vec::Vec;
-use core::sync::atomic::{AtomicBool, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use touchos_drv::link;
 use touchos_rt::{exec, time};
 
 use crate::backoff::Backoff;
 use crate::ieee80211::{self as w, Hdr};
 use crate::keys::{self, Handshake, Keys, RxKeys};
-use crate::radio::{KeyMode, Radio, RxFrame, TxKey};
+use crate::radio::{Counters, KeyMode, Radio, RxFrame, TxKey};
 use crate::scan::{self, Network};
 use crate::{Error, Result, ccmp, rates, wpa};
 
@@ -44,6 +44,79 @@ fn log_ccmp_speed() {
         us / 1000,
         TOTAL as u64 * 1_000_000 / 1024 / us
     );
+}
+
+/// What the station reports for the metrics board (the program publishes
+/// it; see [`snapshot`]).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Snapshot {
+    pub associated: bool,
+    /// Connections made after the first.
+    pub reconnects: u32,
+    /// The access point's signal at join, and its channel (0: none yet).
+    pub rssi: i8,
+    pub channel: u8,
+    pub radio: Counters,
+}
+
+/// The last [`Snapshot`], as atomics: the station writes, the program's
+/// publishing task reads (the same thread, between awaits).
+static SNAP: [AtomicU32; 14] = [const { AtomicU32::new(0) }; 14];
+static JOINS: AtomicU32 = AtomicU32::new(0);
+/// The next time the radio's counters are copied into [`SNAP`].
+static SNAP_AT: AtomicU32 = AtomicU32::new(0);
+
+/// Copy the radio's counters (at most once a second, unless `now`).
+fn note<R: Radio>(r: &R, force: bool) {
+    let t = (time::now_ms() / 1000) as u32;
+    if !force && t < SNAP_AT.load(Ordering::Relaxed) {
+        return;
+    }
+    SNAP_AT.store(t + 1, Ordering::Relaxed);
+    let c = r.counters();
+    let v = [
+        c.rx_frames,
+        c.rx_crc_errors,
+        c.rx_malformed,
+        c.rx_usb_errors,
+        c.tx_frames,
+        c.tx_usb_errors,
+        c.tx_ok,
+        c.tx_failed,
+        c.tx_retries,
+        c.rate_kbps,
+    ];
+    for (a, v) in SNAP.iter().zip(v) {
+        a.store(v, Ordering::Relaxed);
+    }
+}
+
+fn note_bss(bss: &Network) {
+    SNAP[10].store(bss.rssi as u8 as u32, Ordering::Relaxed);
+    SNAP[11].store(bss.channel as u32, Ordering::Relaxed);
+}
+
+/// The station's figures for the metrics board.
+pub fn snapshot() -> Snapshot {
+    let g = |i: usize| SNAP[i].load(Ordering::Relaxed);
+    Snapshot {
+        associated: CONNECTED.load(Ordering::Relaxed),
+        reconnects: JOINS.load(Ordering::Relaxed).saturating_sub(1),
+        rssi: g(10) as u8 as i8,
+        channel: g(11) as u8,
+        radio: Counters {
+            rx_frames: g(0),
+            rx_crc_errors: g(1),
+            rx_malformed: g(2),
+            rx_usb_errors: g(3),
+            tx_frames: g(4),
+            tx_usb_errors: g(5),
+            tx_ok: g(6),
+            tx_failed: g(7),
+            tx_retries: g(8),
+            rate_kbps: g(9),
+        },
+    }
 }
 
 /// The wait before the first rescan when the network isn't there, and
@@ -102,15 +175,18 @@ pub async fn serve<R: Radio>(r: &mut R, ssid: Option<&str>, psk: Option<&str>, h
                 (false, false) => "802.11g",
             }
         );
+        note_bss(&bss);
         match connect(r, bss, psk).await {
             Ok(mut station) => {
                 failures = Backoff::default();
+                JOINS.fetch_add(1, Ordering::Relaxed);
                 if run(r, &mut station).await == Ended::Leaving {
                     return Ok(());
                 }
             }
             Err(e) => warn!("connect failed: {e}"),
         }
+        note(r, true);
         if r.dead() {
             return Err(Error::Hw("the radio stopped working"));
         }
@@ -465,6 +541,7 @@ async fn pump<R: Radio>(r: &mut R, s: &mut Station) -> Ended {
             warn!("the radio stopped working");
             return Ended::RadioDead;
         }
+        note(r, false);
         if LEAVING.load(Ordering::SeqCst) {
             return Ended::Leaving;
         }

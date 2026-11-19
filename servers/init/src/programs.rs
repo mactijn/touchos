@@ -35,6 +35,8 @@ pub struct Table {
     pub tests_from: usize,
     /// The network status board (init reads it to judge the copy's health).
     pub net_state: u32,
+    /// init's own metrics board (it writes; web reads).
+    pub init_metrics: u32,
     /// On the NAND: storage (badge UPDATE), where init reads whether this
     /// copy is on trial and settles it (see `health`).
     pub nand_storage: Option<u32>,
@@ -189,6 +191,7 @@ pub fn table(board: &'static Board, opts: &Opts, system: u32, initrd: &Mapping, 
                     ("config", config.full),
                     ("state", shared.ha_state),
                     ("calls", shared.ha_calls),
+                    ("metrics", shared.metrics.ha),
                 ];
                 cacerts(&mut c);
                 c
@@ -208,9 +211,10 @@ pub fn table(board: &'static Board, opts: &Opts, system: u32, initrd: &Mapping, 
                     ("ha_state", mint(shared.ha_state, rights::MAP_READ, 0)),
                     (
                         "system",
-                        mint(system, rights::KLOG_READ | rights::REBOOT, 0)
+                        mint(system, rights::KLOG_READ | rights::REBOOT | rights::STATS, 0)
                     ),
                 ];
+                c.extend(shared.metrics.readers());
                 c.extend(update_for_web.iter().copied());
                 c
             },
@@ -243,7 +247,7 @@ pub fn table(board: &'static Board, opts: &Opts, system: u32, initrd: &Mapping, 
         }
     }
     let nand_storage = nand.then(|| mint(storage_ep, rights::CALL, touchos_proto::storage::badge::UPDATE));
-    Table { programs, tests_from, net_state: shared.net_state, nand_storage }
+    Table { programs, tests_from, net_state: shared.net_state, init_metrics: shared.metrics.init, nand_storage }
 }
 
 /// The dashboard: the framebuffer, the display engine (backlight), the
@@ -310,6 +314,7 @@ fn wifi_rt5370(
     let mut caps = alloc::vec![("config", config.full), ("regs", regs)];
     caps.extend(board::irq("USB", ehci.irq).map(|c| ("irq", c)));
     caps.extend(driver_link(sh.wlan_link));
+    caps.push(("metrics", sh.metrics.wifi));
     caps.extend(initrd_file(initrd, files, firmware_file).map(|fw| ("firmware", fw)));
     Some(driver("wifi", ehci.args, caps))
 }
@@ -377,6 +382,29 @@ pub struct Shared {
     /// Frames and link state between each network driver and net.
     wired_link: [u32; 3],
     wlan_link: [u32; 3],
+    /// The servers' metrics boards.
+    pub metrics: MetricsBoards,
+}
+
+/// One metrics board per server that has counters (each writes its own;
+/// web reads them all for `/metrics` and the System page).
+pub struct MetricsBoards {
+    pub init: u32,
+    net: u32,
+    wifi: u32,
+    ha: u32,
+}
+
+impl MetricsBoards {
+    fn readers(&self) -> [(&'static str, u32); 4] {
+        let ro = |m| mint(m, rights::MAP_READ, 0);
+        [
+            ("init_metrics", ro(self.init)),
+            ("net_metrics", ro(self.net)),
+            ("wifi_metrics", ro(self.wifi)),
+            ("ha_metrics", ro(self.ha)),
+        ]
+    }
 }
 
 impl Shared {
@@ -398,6 +426,10 @@ impl Shared {
             input: mem(input_ring_size()),
             wired_link,
             wlan_link,
+            metrics: {
+                let b = || mem(touchos_proto::metrics::BYTES);
+                MetricsBoards { init: b(), net: b(), wifi: b(), ha: b() }
+            },
         }
     }
 }
@@ -420,6 +452,7 @@ fn net_caps(ep: u32, config: &ConfigCaps, sh: &Shared, system: u32) -> Vec<(&'st
         ("ep", ep),
         ("config", config.public),
         ("status", sh.net_state),
+        ("metrics", sh.metrics.net),
         (
             "system",
             mint(system, rights::TIME_SET | rights::KLOG_READ, 0)
