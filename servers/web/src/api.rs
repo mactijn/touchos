@@ -52,6 +52,10 @@ pub async fn handle(req: &Request) -> Response {
         ("GET", "/api/config") => get_config(),
         ("PATCH", "/api/config") => patch_config(req),
         ("GET", "/api/status") => ok(status()),
+        ("GET", "/api/system/processes") => match crate::metrics::processes_json() {
+            Some(j) => ok(j),
+            None => error(503, "the kernel's figures aren't available"),
+        },
         ("GET", "/api/log") => log(req),
         ("GET", "/api/ha/entities") => ok(entities()),
         ("GET", "/api/zones") => ok(json!(touchos_civil::listed().collect::<Vec<_>>())),
