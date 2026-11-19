@@ -85,6 +85,48 @@ export interface Status {
   config: { version: number | null; problems: string[] };
 }
 
+// ---- processes (GET /api/system/processes) ----
+
+/** The kernel's figures since boot (monotonic counters). */
+export interface SystemFigures {
+  uptime_us: number;
+  ticks: number;
+  idle_us: number;
+  /** Address-space switches. */
+  switches: number;
+  cores: number;
+  threads: number;
+  free_bytes: number;
+  heap_used: number;
+  heap_size: number;
+}
+
+export interface ProcessFigures {
+  name: string;
+  /** null: not running. */
+  pid: number | null;
+  /** One of the kernel's own threads (no process). */
+  kernel: boolean;
+  idle: boolean;
+  /** 'ready' | 'running' | 'sleeping' | 'ipc' | 'dead'; null: not running. */
+  state: string | null;
+  priority: number | null;
+  /** Since its start (monotonic). */
+  cpu_us: number | null;
+  switches: number | null;
+  memory: number | null;
+  /** Since boot; null for programs init doesn't supervise. */
+  restarts: number | null;
+  crashes: number | null;
+  status: 'running' | 'restarting' | 'gave up' | 'ended';
+  last_exit: { how: string; code: number } | null;
+}
+
+export interface Processes {
+  system: SystemFigures;
+  processes: ProcessFigures[];
+}
+
 // ---- software updates ----
 
 export type Phase =

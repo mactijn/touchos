@@ -1,4 +1,4 @@
-// /system — status, the log, restart.
+// /system — status, the processes, the log, restart.
 import {
   Component,
   DestroyRef,
@@ -22,6 +22,7 @@ import { Api, errorText } from '../api';
 import { confirm } from '../confirm-dialog';
 import { Panel, duration } from '../panel';
 import { Session } from '../session';
+import { ProcessesCard } from './processes-card';
 
 /** "[   12.345] W net: …" */
 interface LogLine {
@@ -41,6 +42,7 @@ interface LogLine {
     MatSelectModule,
     MatSlideToggleModule,
     MatTooltipModule,
+    ProcessesCard,
   ],
   templateUrl: './system.html',
   styleUrl: './system.scss',
