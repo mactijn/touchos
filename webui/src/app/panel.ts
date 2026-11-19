@@ -1,7 +1,7 @@
 // The panel's status (header line, system page) and waiting for it to come
 // back after a restart.
 import { Injectable, computed, inject, signal } from '@angular/core';
-import { Api, OFFLINE, Status } from './api';
+import { Api, OFFLINE, Processes, Status } from './api';
 import { Session } from './session';
 
 export type Comeback =
@@ -39,6 +39,13 @@ export class Panel {
     this.offline.set(r.status === OFFLINE);
     if (r.status === 401 && this.session.paired()) this.session.lost();
     if (r.data) this.status.set(r.data);
+    return r.data ?? null;
+  }
+
+  /** The processes and the kernel's figures; null if unavailable. */
+  async processes(): Promise<Processes | null> {
+    const r = await this.api.get<Processes>('/api/system/processes');
+    if (r.status === 401 && this.session.paired()) this.session.lost();
     return r.data ?? null;
   }
 

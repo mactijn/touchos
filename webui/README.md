@@ -33,4 +33,5 @@ npx ng test --watch=false                  # unit tests (vitest)
 | `src/app/panel.ts` | Status for the header line; waiting for the panel after a restart |
 | `src/app/update.ts` | Uploading an update bundle with progress |
 | `src/app/app.ts` | The frame: side bar, top bar with status, save bar |
-| `src/app/pages/` | `pair`, `section` (one settings section), `tiles`, `software`, `system` |
+| `src/app/processes.ts` | Rates and sorting for the System page's process list (unit-tested) |
+| `src/app/pages/` | `pair`, `section` (one settings section), `tiles`, `software`, `system` (with `processes-card`) |

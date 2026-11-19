@@ -25,7 +25,8 @@ Open `http://touchos-xxxxxx.local/` in a browser on your network, where `xxxxxx`
   - Placeholders in italics are the defaults; an empty field uses the default.
 - **Tiles.** Tiles can be added, dragged into order and removed. The entity field suggests Home Assistant's entities by id or name; an empty name uses Home Assistant's.
 - **Software.** Installs a signed update (`cargo xtask bundle`) into the copy of the system that isn't running; see [the quick start](quick-start-toon.md#9-updates).
-- **System.** Status, the log and a restart. After a restart the page waits until the panel answers again.
+- **System.** Status, the processes, the log and a restart. After a restart the page waits until the panel answers again.
+  - **Processes** is like `top`: each process with its CPU share and switches per second since the last refresh (every 3 s while the page is visible), its memory, restarts since boot (crashes in brackets) and what it is doing. Programs that aren't running are greyed out at the bottom: finished, waiting to be restarted, or given up on after crashing too often (hover for how they ended). Above it: how busy the CPU is (with the last 5 minutes), switches per second, free memory and the kernel's heap. The same figures are in [`/metrics`](metrics.md).
 - **Plain HTTP.** Anyone on the network can read what you send to the page.
 
 When the panel saves a change, it rewrites only the changed lines of `touchos.toml`, so comments stay. The previous version is kept as a backup. The file lives in the NAND's config ring: each save is a new record, and a power cut while saving leaves the previous one.

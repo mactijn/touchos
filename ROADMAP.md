@@ -74,7 +74,7 @@ The panel runs one app at a time (`ui.app`): the Home Assistant dashboard, a the
 
 ## Monitoring
 - **Today:** the `STATS` syscall gives web the kernel's figures (CPU time and switches per thread, memory per process, IRQ counts, the heap); net, wifi, ha and init write their counters on metrics boards; `/metrics` serves it all in the Prometheus format, opt-in and without a session ([docs/metrics.md](docs/metrics.md)).
-- **Next:** a process overview on the System page: CPU, switches/s, memory and restarts per process ([#21](https://github.com/mactijn/touchos/issues/21)).
+- The System page shows the processes like `top`: CPU, switches/s, memory and restarts per process.
 - **Later:** zwave (frames, retransmits, NAKs), boiler (frames, line errors) and storage (NAND reads, writes, erases, ECC corrections) on metrics boards of their own.
 
 ## TLS

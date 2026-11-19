@@ -1,0 +1,85 @@
+<mat-card appearance="outlined" class="processes">
+  <div class="bar">
+    <h2>Processes</h2>
+  </div>
+  @if (view(); as v) {
+    <div class="summary">
+      <div class="figure cpu">
+        <div class="label">CPU busy</div>
+        <div class="value">{{ v.system.busy === null ? '…' : pct(v.system.busy) }}</div>
+        @if (spark()) {
+          <svg class="spark" viewBox="0 0 120 32" preserveAspectRatio="none" aria-hidden="true">
+            <polyline [attr.points]="spark()" />
+          </svg>
+        }
+      </div>
+      <div class="figure">
+        <div class="label">Switches/s</div>
+        <div class="value">{{ v.system.switchesPerS === null ? '…' : rate(v.system.switchesPerS) }}</div>
+      </div>
+      <div class="figure">
+        <div class="label">Free memory</div>
+        <div class="value">{{ bytes(v.system.freeBytes) }}</div>
+      </div>
+      <div class="figure">
+        <div class="label">Kernel heap</div>
+        <div class="value">{{ heap() }}</div>
+      </div>
+      <div class="figure">
+        <div class="label">Up</div>
+        <div class="value">{{ duration(v.system.uptimeS) }}</div>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            @for (c of columns; track c.key) {
+              <th
+                [class.num]="c.num"
+                [class.sorted]="sortKey() === c.key"
+                [attr.aria-sort]="
+                  sortKey() === c.key ? ((c.num ? !desc() : desc()) ? 'descending' : 'ascending') : 'none'
+                "
+              >
+                <button type="button" (click)="sortBy(c.key)" [matTooltip]="c.tip">
+                  {{ c.label }}
+                </button>
+              </th>
+            }
+          </tr>
+        </thead>
+        <tbody>
+          @for (p of list(); track p.name) {
+            <tr [class.gone]="p.pid === null" [class.kernel]="p.kernel">
+              <td>{{ p.name }}</td>
+              <td class="num">{{ p.kernel ? '' : p.pid }}</td>
+              <td class="num">{{ pct(p.cpu) }}</td>
+              <td class="num">{{ rate(p.switchesPerS) }}</td>
+              <td class="num">{{ bytes(p.memory) }}</td>
+              <td class="num" [class.bad]="(p.crashes ?? 0) > 0">
+                @if (p.restarts !== null) {
+                  {{ p.restarts }}
+                  @if (p.crashes) {
+                    ({{ p.crashes }})
+                  }
+                }
+              </td>
+              <td [class.bad]="p.status === 'gave up' || p.status === 'restarting'">
+                @if (p.pid === null) {
+                  <span [matTooltip]="p.lastExit ?? ''">{{ p.status }}</span>
+                } @else {
+                  <span [matTooltip]="p.lastExit ? 'last ' + p.lastExit : ''">{{ p.idle ? '' : p.state }}</span>
+                }
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  } @else if (unavailable()) {
+    <p class="dim">The process list isn't available.</p>
+  } @else {
+    <p class="dim">Loading…</p>
+  }
+</mat-card>

@@ -128,6 +128,86 @@ pub fn text() -> String {
     w.finish()
 }
 
+/// `GET /api/system/processes` (session): the system's figures and one
+/// entry per process, from the kernel's report and init's board. The
+/// counters are monotonic: the page computes rates from two polls.
+pub fn processes_json() -> Option<serde_json::Value> {
+    use serde_json::json;
+    let bytes = kernel_report()?;
+    let r = stats::Report::parse(&bytes)?;
+    let h = r.header;
+    let init = board("init_metrics").unwrap_or_default();
+    let server = |name: &str, metric: &str| init.get(metric, &[("server", name)]);
+    let last_exit = |name: &str| {
+        init.items
+            .iter()
+            .find(|m| m.name == "touchos_server_last_exit" && m.labels.iter().any(|(k, v)| k == "server" && v == name))
+            .map(|m| {
+                let how = m.labels.iter().find(|(k, _)| k == "how").map_or("", |(_, v)| v.as_str());
+                json!({ "how": how, "code": m.value })
+            })
+    };
+    let mut procs: Vec<serde_json::Value> = Vec::new();
+    let live = processes(&r);
+    for p in &live {
+        let supervised = server(&p.name, "touchos_server_up").is_some();
+        procs.push(json!({
+            "name": p.name,
+            "pid": p.pid,
+            "kernel": p.pid == 0,
+            "idle": p.idle,
+            "state": stats::state::name(p.state),
+            "priority": p.priority,
+            "cpu_us": p.cpu_us,
+            "switches": p.switch_ins,
+            "memory": if p.pid == 0 { None } else { Some(p.mem_bytes) },
+            "restarts": supervised.then(|| server(&p.name, "touchos_server_restarts_total").unwrap_or(0)),
+            "crashes": supervised.then(|| server(&p.name, "touchos_server_crashes_total").unwrap_or(0)),
+            "status": "running",
+            "last_exit": last_exit(&p.name),
+        }));
+    }
+    // Programs init started that aren't running now: finished, waiting
+    // for a restart, or given up on.
+    for m in init.items.iter().filter(|m| m.name == "touchos_server_up" && m.value == 0) {
+        let Some((_, name)) = m.labels.iter().find(|(k, _)| k == "server") else { continue };
+        if live.iter().any(|p| &p.name == name) {
+            continue;
+        }
+        let gave_up = server(name, "touchos_server_gave_up") == Some(1);
+        let restarting = !gave_up && last_exit(name).is_some_and(|e| e["how"] != "exit" || e["code"] != 0);
+        procs.push(json!({
+            "name": name,
+            "pid": null,
+            "kernel": false,
+            "idle": false,
+            "state": null,
+            "priority": null,
+            "cpu_us": null,
+            "switches": null,
+            "memory": null,
+            "restarts": server(name, "touchos_server_restarts_total"),
+            "crashes": server(name, "touchos_server_crashes_total"),
+            "status": if gave_up { "gave up" } else if restarting { "restarting" } else { "ended" },
+            "last_exit": last_exit(name),
+        }));
+    }
+    Some(json!({
+        "system": {
+            "uptime_us": h.uptime_us,
+            "ticks": h.ticks,
+            "idle_us": h.idle_us,
+            "switches": h.switches,
+            "cores": h.cores,
+            "threads": h.threads,
+            "free_bytes": h.free_bytes,
+            "heap_used": h.heap_used,
+            "heap_size": h.heap_size,
+        },
+        "processes": procs,
+    }))
+}
+
 pub fn handle(_req: &Request) -> Response {
     if !touchos_config::client::settings::get().metrics.enabled {
         return crate::error(404, "not found");
