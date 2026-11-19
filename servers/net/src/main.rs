@@ -25,6 +25,8 @@ use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
+use core::cell::Cell;
+use core::sync::atomic::{AtomicU32, Ordering};
 use log::{info, warn};
 use smoltcp::iface::{Config, Interface, SocketHandle, SocketSet};
 use smoltcp::phy::{self, DeviceCapabilities, Medium};
@@ -43,13 +45,33 @@ touchos_rt::entry!(main);
 /// The frames from and to the drivers.
 /// A network driver (USB Ethernet, Wi-Fi): frame rings and its link state.
 struct Provider {
+    /// "wired" or "wlan" (the metrics' interface label).
+    id: &'static str,
     name: &'static str,
+    counts: Counts,
     rx: Shared<Ring>,
     tx: Shared<Ring>,
     state: Shared<Board>,
     seq: u64,
     mac: Option<[u8; 6]>,
 }
+
+/// A provider's frame counters (the metrics board).
+#[derive(Default)]
+struct Counts {
+    rx_bytes: Cell<u64>,
+    rx_packets: Cell<u64>,
+    tx_bytes: Cell<u64>,
+    tx_packets: Cell<u64>,
+    tx_dropped: Cell<u64>,
+}
+
+fn bump(c: &Cell<u64>, by: u64) {
+    c.set(c.get().wrapping_add(by));
+}
+
+/// DHCP leases taken (`Net` is made again for each link, so it's kept here).
+static LEASES: AtomicU32 = AtomicU32::new(0);
 
 /// The frames of the active link (the first provider that is up).
 struct Frames {
@@ -58,9 +80,9 @@ struct Frames {
 }
 
 impl Frames {
-    fn rings(&self) -> Option<(&Ring, &Ring)> {
+    fn rings(&self) -> Option<(&Ring, &Ring, &Counts)> {
         let p = &self.providers[self.active?];
-        Some((&p.rx, &p.tx))
+        Some((&p.rx, &p.tx, &p.counts))
     }
 
     /// Wake the active driver if frames wait for it.
@@ -95,7 +117,7 @@ fn now() -> Instant {
 }
 
 struct RxToken(Vec<u8>);
-struct TxToken<'a>(&'a Ring);
+struct TxToken<'a>(&'a Ring, &'a Counts);
 
 impl phy::RxToken for RxToken {
     fn consume<R, F: FnOnce(&[u8]) -> R>(self, f: F) -> R {
@@ -107,7 +129,12 @@ impl phy::TxToken for TxToken<'_> {
     fn consume<R, F: FnOnce(&mut [u8]) -> R>(self, len: usize, f: F) -> R {
         let mut frame = vec![0u8; len];
         let r = f(&mut frame);
-        let _ = self.0.push(&frame);
+        if !matches!(self.0.push(&frame), touchos_proto::shm::Pushed::Full) {
+            bump(&self.1.tx_packets, 1);
+            bump(&self.1.tx_bytes, len as u64);
+        } else {
+            bump(&self.1.tx_dropped, 1);
+        }
         r
     }
 }
@@ -117,21 +144,23 @@ impl phy::Device for Frames {
     type TxToken<'a> = TxToken<'a>;
 
     fn receive(&mut self, _: Instant) -> Option<(RxToken, TxToken<'_>)> {
-        let (rx, tx) = self.rings()?;
+        let (rx, tx, counts) = self.rings()?;
         if !tx.has_room() {
             return None; // a reply couldn't be sent: leave the frame queued
         }
         let mut buf = vec![0u8; FRAME_SLOT as usize];
         let n = rx.pop(&mut buf)?;
         buf.truncate(n);
-        Some((RxToken(buf), TxToken(tx)))
+        bump(&counts.rx_packets, 1);
+        bump(&counts.rx_bytes, n as u64);
+        Some((RxToken(buf), TxToken(tx, counts)))
     }
 
     /// Only with room in the ring: otherwise smoltcp keeps the packet
     /// (backpressure instead of silently dropping frames).
     fn transmit(&mut self, _: Instant) -> Option<TxToken<'_>> {
-        let (_, tx) = self.rings()?;
-        tx.has_room().then_some(TxToken(tx))
+        let (_, tx, counts) = self.rings()?;
+        tx.has_room().then_some(TxToken(tx, counts))
     }
 
     fn capabilities(&self) -> DeviceCapabilities {
@@ -257,6 +286,7 @@ impl Net {
                 self.sockets
                     .get_mut::<dns::Socket>(self.dns)
                     .update_servers(&servers);
+                LEASES.fetch_add(1, Ordering::Relaxed);
                 info!(
                     "DHCP: {address} gateway {router:?} dns {dns_servers:?} ntp {:?} as {}",
                     self.ntp_servers, self.host
@@ -394,14 +424,34 @@ fn ship_log(st: &mut State) {
     }
 }
 
+/// What net publishes on its metrics board.
+fn metrics_of(st: &State) -> touchos_proto::metrics::Metrics {
+    let mut m = touchos_proto::metrics::Metrics::new();
+    for p in &st.frames.providers {
+        let l = [("interface", p.id)];
+        let c = &p.counts;
+        m.with("touchos_net_receive_bytes_total", &l, c.rx_bytes.get() as i64)
+            .with("touchos_net_receive_packets_total", &l, c.rx_packets.get() as i64)
+            .with("touchos_net_transmit_bytes_total", &l, c.tx_bytes.get() as i64)
+            .with("touchos_net_transmit_packets_total", &l, c.tx_packets.get() as i64)
+            .with("touchos_net_transmit_dropped_total", &l, c.tx_dropped.get() as i64);
+    }
+    m.set("touchos_net_tcp_connections", st.conns.len() as i64)
+        .set("touchos_net_dhcp_leases_total", LEASES.load(Ordering::Relaxed) as i64)
+        .set("touchos_net_link_changes_total", st.generation as i64)
+        .set("touchos_net_up", st.net.as_ref().is_some_and(|n| n.ipv4.is_some()) as i64);
+    m
+}
+
 /// The longest the protocol loop sleeps when nothing wakes it: frames
 /// from the drivers and clients' writes do, smoltcp's timers are in its
 /// delay; this bounds how late new kernel log lines go out (`ship_log`).
 const MAX_WAIT_MS: u64 = 500;
 
 /// The protocol loop.
-async fn stack(link_bit: usize, tx_bit: usize, board: Option<Shared<Board>>) {
+async fn stack(link_bit: usize, tx_bit: usize, board: Option<Shared<Board>>, metrics_board: Option<Shared<Board>>) {
     let mut published: Option<Status> = None;
+    let mut metrics = touchos_proto::metrics::Publisher::default();
     loop {
         // Link up/down, and which driver carries it.
         with(|st| {
@@ -461,6 +511,12 @@ async fn stack(link_bit: usize, tx_bit: usize, board: Option<Shared<Board>>) {
                 let _ = sys::mem_notify(b.mem()); // the dashboard waits on it
             }
         }
+        if let Some(b) = &metrics_board
+            && metrics.due(time::now_ms())
+            && let Some(bytes) = metrics.update(with(|st| metrics_of(st)), time::now_ms())
+        {
+            b.write(&bytes);
+        }
         if delay > 0 {
             exec::wait_bits_or_ms(link_bit | tx_bit, delay.min(MAX_WAIT_MS)).await;
         } else {
@@ -492,7 +548,7 @@ fn main() {
         tx.init(proto::FRAME_SLOTS, FRAME_SLOT);
         let _ = sys::mem_wait(rx.mem(), link_bit);
         let _ = sys::mem_wait(state.mem(), link_bit);
-        providers.push(Provider { name: label, rx, tx, state, seq: 0, mac: None });
+        providers.push(Provider { id: name, name: label, counts: Counts::default(), rx, tx, state, seq: 0, mac: None });
     }
     if providers.is_empty() {
         warn!("no network drivers; nothing to do");
@@ -529,7 +585,7 @@ fn main() {
         dhcp_options: None,
     };
     STATE.with(|s| *s = Some(state));
-    exec::spawn(stack(link_bit, tx_bit, board));
+    exec::spawn(stack(link_bit, tx_bit, board, shm::board("metrics", true)));
     let ntp_bit = exec::alloc_bit();
     exec::spawn(ntp::task(ntp_bit));
     exec::spawn(watch_settings(ntp_bit));

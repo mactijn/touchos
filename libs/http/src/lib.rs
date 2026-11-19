@@ -7,6 +7,7 @@
 
 extern crate alloc;
 
+pub mod prom;
 pub mod ws;
 
 use alloc::format;

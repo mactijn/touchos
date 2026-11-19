@@ -7,6 +7,7 @@ extern crate alloc;
 
 pub mod ha;
 pub mod input;
+pub mod metrics;
 pub mod net;
 pub mod shm;
 pub mod storage;

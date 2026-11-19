@@ -100,6 +100,11 @@ pub mod nr {
     // Random bytes from the kernel's entropy source (for CPUs without an
     // instruction for it): buffer pointer, length (at most 256).
     pub const RANDOM: Word = 52;
+    /// The kernel's figures (System capability, right STATS): system,
+    /// buffer pointer, length → (bytes written, bytes needed). The buffer
+    /// holds a [`super::stats`] report; if it is too small, nothing is
+    /// written and the second result says how much is needed.
+    pub const STATS: Word = 53;
 }
 
 /// Errors, returned as negative values in the first result register.
@@ -361,6 +366,7 @@ pub mod rights {
     pub const POWEROFF: u32 = 1 << 4;
     // 1 << 5: reserved (was EFI_BOOT).
     pub const WATCHDOG: u32 = 1 << 6;
+    pub const STATS: u32 = 1 << 7;
 }
 
 /// Where REBOOT restarts into (its second argument).
@@ -370,6 +376,159 @@ pub mod reboot {
     /// which starts the active copy, or the copy on trial).
     pub const DEFAULT: Word = 0;
     // 1: reserved (was DEBIAN).
+}
+
+/// The report `STATS` fills a buffer with: a [`Header`](stats::Header),
+/// then `threads` [`Thread`](stats::Thread)s, then `irqs`
+/// [`Irq`](stats::Irq)s (only the lines that fired). Counters are
+/// monotonic since boot, so readers compute their own rates.
+pub mod stats {
+    /// The layout's version (`Header::version`).
+    pub const VERSION: u32 = 1;
+    /// The most a report may take (the kernel copies it through its heap).
+    pub const MAX_BYTES: usize = 16 * 1024;
+
+    #[repr(C)]
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+    pub struct Header {
+        pub version: u32,
+        pub threads: u32,
+        pub irqs: u32,
+        /// Cores (the idle time is over all of them).
+        pub cores: u32,
+        pub uptime_us: u64,
+        /// Timer ticks since boot.
+        pub ticks: u64,
+        /// Time the idle threads waited for an interrupt.
+        pub idle_us: u64,
+        /// Address-space switches (what the heartbeat's "switches/s"
+        /// counts). 32 bits in the kernel: it wraps after about 2 years at
+        /// 50/s.
+        pub switches: u64,
+        /// Free RAM (frames).
+        pub free_bytes: u64,
+        pub heap_used: u64,
+        pub heap_size: u64,
+    }
+
+    /// Thread states (`Thread::state`).
+    pub mod state {
+        pub const READY: u8 = 0;
+        pub const RUNNING: u8 = 1;
+        pub const SLEEPING: u8 = 2;
+        /// Waiting in IPC: for a receiver, a reply, or a message.
+        pub const IPC: u8 = 3;
+        pub const DEAD: u8 = 4;
+
+        pub fn name(s: u8) -> &'static str {
+            match s {
+                READY => "ready",
+                RUNNING => "running",
+                SLEEPING => "sleeping",
+                IPC => "ipc",
+                DEAD => "dead",
+                _ => "unknown",
+            }
+        }
+    }
+
+    #[repr(C)]
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+    pub struct Thread {
+        pub tid: u32,
+        /// The process id; 0 for the kernel's own threads.
+        pub pid: u32,
+        /// NUL-padded; a user process's thread has the process's name.
+        pub name: [u8; 16],
+        pub state: u8,
+        pub priority: u8,
+        /// 1 for an idle thread.
+        pub idle: u8,
+        pub _pad: u8,
+        /// Times it was switched to.
+        pub switch_ins: u32,
+        /// CPU time it ran, in µs. Measured at each switch with the
+        /// clock's resolution (about 30 µs on the i.MX), so short runs
+        /// are rounded. Over all threads that ever ran it sums to the
+        /// uptime; a thread that ended takes its share with it.
+        pub cpu_us: u64,
+        /// The memory its address space owns: image, stack, heap. Not
+        /// shared memory (boards, rings, DMA) or devices, and it never
+        /// shrinks (memory isn't given back).
+        pub mem_bytes: u64,
+    }
+
+    impl Thread {
+        pub fn name(&self) -> &str {
+            let n = self.name.iter().position(|&b| b == 0).unwrap_or(self.name.len());
+            core::str::from_utf8(&self.name[..n]).unwrap_or("?")
+        }
+    }
+
+    #[repr(C)]
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+    pub struct Irq {
+        pub line: u32,
+        pub count: u32,
+    }
+
+    const _: () = assert!(core::mem::size_of::<Header>() == 72);
+    const _: () = assert!(core::mem::size_of::<Thread>() == 48);
+    const _: () = assert!(core::mem::size_of::<Irq>() == 8);
+
+    /// The bytes a report with this many threads and lines takes.
+    pub const fn size(threads: usize, irqs: usize) -> usize {
+        core::mem::size_of::<Header>()
+            + threads * core::mem::size_of::<Thread>()
+            + irqs * core::mem::size_of::<Irq>()
+    }
+
+    /// The raw bytes of a report part (all three are plain `repr(C)` data
+    /// without padding holes that could leak anything).
+    pub fn bytes<T: Part>(v: &T) -> &[u8] {
+        unsafe { core::slice::from_raw_parts(v as *const T as *const u8, core::mem::size_of::<T>()) }
+    }
+
+    /// The types a report is made of.
+    pub trait Part: Copy + Default {}
+    impl Part for Header {}
+    impl Part for Thread {}
+    impl Part for Irq {}
+
+    fn read<T: Part>(b: &[u8], at: usize) -> Option<T> {
+        let s = b.get(at..at + core::mem::size_of::<T>())?;
+        Some(unsafe { core::ptr::read_unaligned(s.as_ptr() as *const T) })
+    }
+
+    /// A report read back from its bytes.
+    #[derive(Debug, Clone, Copy)]
+    pub struct Report<'a> {
+        pub header: Header,
+        bytes: &'a [u8],
+    }
+
+    impl<'a> Report<'a> {
+        /// None if it is cut short or of another version.
+        pub fn parse(bytes: &'a [u8]) -> Option<Report<'a>> {
+            let header: Header = read(bytes, 0)?;
+            if header.version != VERSION || bytes.len() < size(header.threads as usize, header.irqs as usize) {
+                return None;
+            }
+            Some(Report { header, bytes })
+        }
+
+        pub fn threads(&self) -> impl Iterator<Item = Thread> + 'a {
+            let b = self.bytes;
+            let at = core::mem::size_of::<Header>();
+            (0..self.header.threads as usize).filter_map(move |i| read(b, at + i * core::mem::size_of::<Thread>()))
+        }
+
+        pub fn irqs(&self) -> impl Iterator<Item = Irq> + 'a {
+            let b = self.bytes;
+            let at = size(self.header.threads as usize, 0);
+            (0..self.header.irqs as usize).filter_map(move |i| read(b, at + i * core::mem::size_of::<Irq>()))
+        }
+    }
 }
 
 /// Operations of the WATCHDOG syscall.
@@ -502,6 +661,33 @@ mod tests {
         }
         // Junk above the low 32 bits of `lo` (a 64-bit register) is ignored.
         assert_eq!(join64(0xdead_0000_0000_0001, 2), 0x2_0000_0001);
+    }
+
+    #[test]
+    fn stats_reports_read_back() {
+        let h = stats::Header { version: stats::VERSION, threads: 2, irqs: 1, cores: 1, uptime_us: 5, ..Default::default() };
+        let mut t1 = stats::Thread { tid: 7, pid: 6, cpu_us: 1234, switch_ins: 9, ..Default::default() };
+        t1.name[..4].copy_from_slice(b"wifi");
+        let t2 = stats::Thread { tid: 1, name: *b"kernel\0\0\0\0\0\0\0\0\0\0", ..Default::default() };
+        let irq = stats::Irq { line: 19, count: 42 };
+        let mut buf = Vec::new();
+        buf.extend_from_slice(stats::bytes(&h));
+        buf.extend_from_slice(stats::bytes(&t1));
+        buf.extend_from_slice(stats::bytes(&t2));
+        buf.extend_from_slice(stats::bytes(&irq));
+        assert_eq!(buf.len(), stats::size(2, 1));
+        let r = stats::Report::parse(&buf).unwrap();
+        assert_eq!(r.header, h);
+        let ts: Vec<_> = r.threads().collect();
+        assert_eq!(ts, [t1, t2]);
+        assert_eq!((ts[0].name(), ts[1].name()), ("wifi", "kernel"));
+        assert_eq!(r.irqs().collect::<Vec<_>>(), [irq]);
+        // Cut short, or another version: refused.
+        assert!(stats::Report::parse(&buf[..buf.len() - 1]).is_none());
+        let mut old = buf.clone();
+        old[0] = 0;
+        assert!(stats::Report::parse(&old).is_none());
+        assert!(stats::Report::parse(&[]).is_none());
     }
 
     #[test]

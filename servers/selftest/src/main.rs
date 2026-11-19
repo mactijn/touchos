@@ -62,6 +62,10 @@ fn rights() {
         Err(_) => info!("PASS: watchdog refused without its right"),
         Ok(_) => error!("FAIL: stopped the watchdog without the WATCHDOG right"),
     }
+    match sys::stats_raw(system, &mut [0u8; 4096]) {
+        Err(touchos_abi::Error::NoRights) => info!("PASS: STATS refused without its right"),
+        r => error!("FAIL: STATS without the STATS right: {r:?}"),
+    }
 }
 
 use touchos_rt::ipc::reply;
@@ -295,6 +299,62 @@ fn kernel_input() {
     match cap("system").map(|s| sys::klog_read(s, &mut [], 0)) {
         Some(Ok((0, _))) => info!("PASS: kernel log read into an empty buffer"),
         r => error!("FAIL: kernel log read into an empty buffer: {r:?}"),
+    }
+    if let Some(system) = cap("system") {
+        stats(system);
+    }
+}
+
+/// The kernel's STATS report: too small a buffer, a bad one, and a
+/// report that adds up.
+fn stats(system: u32) {
+    use touchos_abi::stats;
+    match sys::stats_raw(system, &mut []) {
+        Ok((0, need)) if need > stats::size(1, 0) => info!("PASS: STATS into an empty buffer asks for {need} bytes"),
+        r => error!("FAIL: STATS into an empty buffer: {r:?}"),
+    }
+    // A buffer in the null guard (nothing mapped there).
+    let bad = unsafe { core::slice::from_raw_parts_mut(0x1000 as *mut u8, 8192) };
+    match sys::stats_raw(system, bad) {
+        Err(touchos_abi::Error::BadAddress) => info!("PASS: STATS into an unmapped buffer refused"),
+        r => error!("FAIL: STATS into an unmapped buffer: {r:?}"),
+    }
+    let bytes = match sys::stats(system) {
+        Ok(b) => b,
+        Err(e) => return error!("FAIL: STATS: {e:?}"),
+    };
+    let Some(r) = stats::Report::parse(&bytes) else {
+        return error!("FAIL: STATS report doesn't parse ({} bytes)", bytes.len());
+    };
+    let h = r.header;
+    let me = r.threads().find(|t| t.name() == "kernel-input");
+    let cpu: u64 = r.threads().map(|t| t.cpu_us).sum();
+    let idle: u64 = r.threads().filter(|t| t.idle != 0).map(|t| t.cpu_us).sum();
+    let ok = me.is_some_and(|t| t.pid != 0 && t.state == stats::state::RUNNING && t.mem_bytes > 0 && t.switch_ins > 0)
+        && r.threads().any(|t| t.name() == "kernel" && t.pid == 0)
+        // Every µs is charged to one thread, so the live ones' sum is at
+        // most the uptime (ended threads took theirs with them; the clock
+        // is read at a few places, so a little slack).
+        && cpu <= h.uptime_us + 1000
+        && cpu >= h.uptime_us / 2
+        && idle <= h.uptime_us
+        && h.free_bytes > 0
+        && h.heap_used > 0
+        && h.heap_used <= h.heap_size
+        && h.threads as usize == r.threads().count();
+    if ok {
+        info!(
+            "PASS: STATS: {} threads, CPU {} ms of {} ms uptime ({} ms idle), {} IRQ lines, heap {} of {} KiB",
+            h.threads,
+            cpu / 1000,
+            h.uptime_us / 1000,
+            idle / 1000,
+            h.irqs,
+            h.heap_used / 1024,
+            h.heap_size / 1024
+        );
+    } else {
+        error!("FAIL: STATS report doesn't add up: {h:?}, me {me:?}, CPU {cpu} µs, idle {idle} µs");
     }
 }
 

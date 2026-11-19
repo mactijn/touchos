@@ -42,7 +42,12 @@ pub(super) fn schedule() {
             s.cur().state = State::Running;
             return;
         }
+        // Charge the time since the last switch to the thread we leave
+        // (the clock's resolution is about 30 µs on the i.MX).
+        let now = time::now_us();
+        let ran = now.saturating_sub(core::mem::replace(&mut s.since[cpu], now));
         let c = s.cur();
+        c.cpu_us += ran;
         if c.state == State::Running {
             c.state = State::Ready;
         }

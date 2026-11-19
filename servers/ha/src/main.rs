@@ -4,7 +4,7 @@
 //!
 //! Capabilities: "net" (TCP), "config" (FULL: it needs the token),
 //! "state" (the board, read-write), "calls" (the ring from the dashboard),
-//! "cacerts" (the TLS roots, read-only).
+//! "cacerts" (the TLS roots, read-only), "metrics" (its counters).
 
 #![no_std]
 #![no_main]
@@ -41,17 +41,39 @@ pub fn state_changed() {
 
 /// Publish the state for the dashboard when it changes (and wake the
 /// dashboard).
-async fn pump(board: Shared<Board>) {
+async fn pump(board: Shared<Board>, metrics_board: Option<Shared<Board>>) {
     let bit = exec::alloc_bit();
     CHANGED_BIT.store(bit, core::sync::atomic::Ordering::Relaxed);
     let mut seen = (u64::MAX, u64::MAX, false);
+    let mut metrics = touchos_proto::metrics::Publisher::default();
+    // Metrics changed but not yet published (they go out at most once a
+    // second).
+    let mut pending = metrics_board.is_some();
     loop {
-        let snap = {
+        let (snap, m) = {
             let st = ha::STATE.lock();
             let v = &st.view;
             let cur = (v.version, v.registry_version, v.connected);
-            (cur != seen).then(|| (cur, v.clone()))
+            let mut m = touchos_proto::metrics::Metrics::new();
+            m.set("touchos_ha_connected", v.connected as i64)
+                .set("touchos_ha_entities", v.entities.len() as i64)
+                .set(
+                    "touchos_ha_reconnects_total",
+                    ha::SESSIONS.load(core::sync::atomic::Ordering::Relaxed).saturating_sub(1) as i64,
+                )
+                .set("touchos_ha_events_total", ha::EVENTS.load(core::sync::atomic::Ordering::Relaxed) as i64);
+            ((cur != seen).then(|| (cur, v.clone())), m)
         };
+        if let Some(b) = &metrics_board {
+            if metrics.due(time::now_ms()) {
+                if let Some(bytes) = metrics.update(m, time::now_ms()) {
+                    b.write(&bytes);
+                }
+                pending = false;
+            } else {
+                pending = true;
+            }
+        }
         if let Some((cur, snap)) = snap {
             if !board.write_as(&snap) {
                 warn!("state too large for the board");
@@ -60,7 +82,11 @@ async fn pump(board: Shared<Board>) {
             seen = cur;
         }
         // At most 20 snapshots a second: a burst of changes is one.
-        exec::wait_bits(bit).await;
+        if pending {
+            exec::wait_bits_or_ms(bit, touchos_proto::metrics::EVERY_MS).await;
+        } else {
+            exec::wait_bits(bit).await;
+        }
         exec::sleep_ms(50).await;
     }
 }
@@ -124,7 +150,7 @@ fn main() {
         warn!("no shared memory for the dashboard");
         return;
     };
-    exec::spawn(pump(board));
+    exec::spawn(pump(board, shm::board("metrics", true)));
     exec::spawn(ha::task(calls));
     exec::spawn(http_test());
     exec::run()

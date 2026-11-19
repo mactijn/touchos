@@ -198,13 +198,14 @@ pub fn programs(board: &Board, config: &ConfigCaps, system: u32) -> Vec<Program>
         caps: alloc::vec![("shared", sys::mem_create(4096, 0).expect("mem_create"))],
         priority: 0,
     });
-    // Malformed syscall input: a bad ELF image, an empty log buffer.
+    // Malformed syscall input: a bad ELF image, an empty log buffer; and
+    // the kernel's STATS report.
     v.push(Program {
         name: "kernel-input",
         file: "selftest",
         args: "kernel-input",
         policy: Policy::Once,
-        caps: alloc::vec![("system", mint(system, rights::KLOG_READ, 0))],
+        caps: alloc::vec![("system", mint(system, rights::KLOG_READ | rights::STATS, 0))],
         priority: 0,
     });
     v.push(Program {

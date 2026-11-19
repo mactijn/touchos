@@ -197,6 +197,14 @@ pub fn free_frame(phys: u64) {
     f.free_bytes += PAGE;
 }
 
+/// The kernel heap: (bytes in use, its size).
+pub fn heap_usage() -> (u64, u64) {
+    crate::arch::irq::without(|| {
+        let h = HEAP.lock();
+        (h.used() as u64, h.size() as u64)
+    })
+}
+
 /// Free physical memory in bytes (bump regions + free list).
 pub fn free_bytes() -> u64 {
     FRAMES.lock().free_bytes

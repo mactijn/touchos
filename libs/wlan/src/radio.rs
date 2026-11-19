@@ -75,6 +75,23 @@ pub struct TxKey<'a> {
 
 /// A Wi-Fi chip in station mode. All methods are polled: none blocks for
 /// longer than the chip needs to take a command.
+/// A radio's counters since it was brought up (the metrics board).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Counters {
+    pub rx_frames: u32,
+    pub rx_crc_errors: u32,
+    pub rx_malformed: u32,
+    pub rx_usb_errors: u32,
+    pub tx_frames: u32,
+    pub tx_usb_errors: u32,
+    /// The chip's results: sent and acknowledged, given up, retries.
+    pub tx_ok: u32,
+    pub tx_failed: u32,
+    pub tx_retries: u32,
+    /// The current data rate (0: not joined).
+    pub rate_kbps: u32,
+}
+
 pub trait Radio {
     /// Our MAC address.
     fn mac(&self) -> [u8; 6];
@@ -132,6 +149,11 @@ pub trait Radio {
     /// Install a group key (after the handshake, and on every renewal).
     async fn install_gtk(&mut self, _key_id: u8, _gtk: &[u8; 16]) -> Result<()> {
         Ok(())
+    }
+
+    /// Counters since bring-up (none: all 0).
+    fn counters(&self) -> Counters {
+        Counters::default()
     }
 
     /// The chip's recent TX results, for the log when a frame goes unanswered.

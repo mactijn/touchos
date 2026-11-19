@@ -58,6 +58,7 @@ Loading it onto a Toon needs a Raspberry Pi wired to its JTAG header once: see t
 
 - [Quick start on the Toon](docs/quick-start-toon.md): from a stock Toon to a working panel
 - [Settings and using the panel](docs/settings.md)
+- [Metrics](docs/metrics.md): `/metrics` for Prometheus
 - [Development](docs/development.md): the `xtask` commands, tests, debugging, the settings page's code
 - [Architecture](docs/architecture.md): the kernel, the processes, where code goes
 - [The Toon's hardware](docs/hardware-toon.md), as touchos drives it

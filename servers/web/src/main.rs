@@ -22,6 +22,7 @@
 extern crate alloc;
 
 mod api;
+mod metrics;
 
 use alloc::format;
 use alloc::string::String;
@@ -246,6 +247,7 @@ include!(concat!(env!("OUT_DIR"), "/assets.rs"));
 async fn route(req: &Request) -> Response {
     match (req.method.as_str(), req.path.as_str()) {
         (_, p) if p.starts_with("/api/") => api::handle(req).await,
+        ("GET", "/metrics") => metrics::handle(req),
         ("GET", p) => match asset(p) {
             Some(a) => serve_asset(req, a),
             None => error(404, "not found"),

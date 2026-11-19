@@ -100,6 +100,27 @@ pub fn klog_read(system: u32, buf: &mut [u8], cursor: u64) -> Result<(usize, u64
     .map(|(n, c)| (n as usize, c))
 }
 
+/// The kernel's figures (`touchos_abi::stats`): fills `buf` → (bytes
+/// written, bytes needed); 0 written if `buf` is too small.
+pub fn stats_raw(system: u32, buf: &mut [u8]) -> Result<(usize, usize)> {
+    sc(nr::STATS, system as u64, buf.as_mut_ptr() as u64, buf.len() as u64, 0).map(|(n, m)| (n as usize, m as usize))
+}
+
+/// The kernel's figures as a buffer holding a whole report (read it with
+/// `touchos_abi::stats::Report::parse`); grows the buffer as threads come.
+pub fn stats(system: u32) -> Result<alloc::vec::Vec<u8>> {
+    let mut buf = alloc::vec![0u8; 2048];
+    loop {
+        let (n, need) = stats_raw(system, &mut buf)?;
+        if n > 0 {
+            buf.truncate(n);
+            return Ok(buf);
+        }
+        // Room for a few more threads that may start meanwhile.
+        buf.resize(need + 256, 0);
+    }
+}
+
 /// The hardware watchdog: `touchos_abi::watchdog::PET`, `STOP` or `QUERY`.
 /// Returns whether one is running.
 pub fn watchdog(system: u32, op: Word) -> Result<bool> {

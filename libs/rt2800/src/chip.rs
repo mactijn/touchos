@@ -104,10 +104,11 @@ pub struct TxCounters {
 }
 
 impl TxCounters {
+    /// Wrapping: a running total since bring-up wraps after years.
     pub fn add(&mut self, o: TxCounters) {
-        self.ok += o.ok;
-        self.failed += o.failed;
-        self.retries += o.retries;
+        self.ok = self.ok.wrapping_add(o.ok);
+        self.failed = self.failed.wrapping_add(o.failed);
+        self.retries = self.retries.wrapping_add(o.retries);
     }
 }
 

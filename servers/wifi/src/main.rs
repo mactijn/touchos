@@ -5,7 +5,7 @@
 //! libs/rt2800 (a port of OpenBSD's run(4)).
 //!
 //! Capabilities: "firmware" (rt3071.bin), "config" (FULL: the Wi-Fi
-//! password), "link_rx"/"link_tx"/"link_state", "regs" (the USB block's
+//! password), "link_rx"/"link_tx"/"link_state", "metrics" (its counters), "regs" (the USB block's
 //! page, with the arguments "ehci <controller offset> [ulpi]").
 //! When the Wi-Fi settings change, the program exits with exit::RESTART
 //! and init starts it again at once. When the radio fails (bring-up, or a
@@ -46,6 +46,38 @@ async fn watch_settings() {
             link::down();
             touchos_rt::sys::exit(touchos_abi::exit::RESTART);
         }
+    }
+}
+
+/// The station's figures on the "metrics" board, once a second.
+async fn publish_metrics() {
+    let Some(board) = touchos_rt::shm::board("metrics", true) else { return };
+    let mut p = touchos_proto::metrics::Publisher::default();
+    loop {
+        let s = station::snapshot();
+        let r = s.radio;
+        let mut m = touchos_proto::metrics::Metrics::new();
+        m.set("touchos_wifi_associated", s.associated as i64)
+            .set("touchos_wifi_reconnects_total", s.reconnects as i64)
+            .set("touchos_wifi_rx_frames_total", r.rx_frames as i64)
+            .set("touchos_wifi_rx_crc_errors_total", r.rx_crc_errors as i64)
+            .set("touchos_wifi_rx_malformed_total", r.rx_malformed as i64)
+            .with("touchos_wifi_usb_errors_total", &[("direction", "rx")], r.rx_usb_errors as i64)
+            .with("touchos_wifi_usb_errors_total", &[("direction", "tx")], r.tx_usb_errors as i64)
+            .set("touchos_wifi_tx_frames_total", r.tx_frames as i64)
+            .set("touchos_wifi_tx_ok_total", r.tx_ok as i64)
+            .set("touchos_wifi_tx_failed_total", r.tx_failed as i64)
+            .set("touchos_wifi_tx_retries_total", r.tx_retries as i64);
+        if s.channel != 0 {
+            m.set("touchos_wifi_channel", s.channel as i64).set("touchos_wifi_rssi_dbm", s.rssi as i64);
+        }
+        if s.associated {
+            m.set("touchos_wifi_rate_kbps", r.rate_kbps as i64);
+        }
+        if let Some(b) = p.update(m, time::now_ms()) {
+            board.write(&b);
+        }
+        exec::sleep_ms(touchos_proto::metrics::EVERY_MS).await;
     }
 }
 
@@ -93,6 +125,7 @@ fn main() {
         FIRMWARE.call_once(|| bytes);
     }
     exec::spawn(watch_settings());
+    exec::spawn(publish_metrics());
     exec::spawn(task());
     exec::run()
 }

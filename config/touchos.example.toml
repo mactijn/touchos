@@ -29,6 +29,10 @@ token = "PASTE-TOKEN-HERE"
 # hostname = "touchos-kitchen"
 # mdns = false           # don't answer to .local names or announce the settings page
 
+[metrics]
+# Serve http://<panel>/metrics for Prometheus, without a session (docs/metrics.md).
+# enabled = true
+
 [display]
 # Backlight in percent: while in use, and after `dim_after_seconds` without touches.
 brightness = 80

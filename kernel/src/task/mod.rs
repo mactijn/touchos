@@ -128,9 +128,13 @@ struct Thread {
     on_cpu: bool,
     /// Only this core may run it (the idle threads).
     pin: Option<u8>,
-    /// Times it was switched to, and the count at the last [`busiest`].
+    /// Times it was switched to (monotonic: the STATS syscall reports
+    /// it), and the count at the last [`busiest`].
     runs: u32,
     runs_seen: u32,
+    /// CPU time it has run, charged when it is switched away from
+    /// (`sched::schedule`).
+    cpu_us: u64,
 }
 
 impl Thread {
@@ -153,6 +157,7 @@ impl Thread {
             pin: None,
             runs: 0,
             runs_seen: 0,
+            cpu_us: 0,
         }
     }
 
@@ -174,6 +179,9 @@ struct Sched {
     /// IPC handoff: run this thread next if nothing of higher priority is
     /// ready (the receiver of a message, the caller that got its reply).
     hint: Option<u32>,
+    /// When each core's current thread was switched to (µs since boot),
+    /// for its CPU time.
+    since: [u64; arch::MAX_CPUS],
 }
 
 impl Sched {
@@ -368,6 +376,7 @@ pub fn init() {
         prev: [None; arch::MAX_CPUS],
         idle: idle_ids,
         hint: None,
+        since: [0; arch::MAX_CPUS],
     });
 }
 
@@ -384,7 +393,6 @@ pub fn current_thread_id() -> u32 {
     with(|s| s.cur().id)
 }
 
-/// Number of threads, and of those in user space, for the heartbeat log.
 /// The threads switched to most often since the last call: (name, times),
 /// at most `n`, busiest first. Who wakes up while nothing happens.
 pub fn busiest(n: usize) -> Vec<(String, u32)> {
@@ -406,9 +414,57 @@ pub fn busiest(n: usize) -> Vec<(String, u32)> {
     })
 }
 
+/// Number of threads, and of those in user space, for the heartbeat log.
 pub fn summary() -> (usize, usize) {
     with(|s| {
         let procs = s.threads.iter().filter(|t| t.process.is_some()).count();
         (s.threads.len(), procs)
     })
+}
+
+/// Every thread's figures for the STATS syscall, at `now` (µs since
+/// boot). The running thread's CPU time includes its current run.
+pub fn stats(now: u64) -> Vec<touchos_abi::stats::Thread> {
+    use touchos_abi::stats::{Thread as T, state};
+    // The processes' memory is read after the scheduler's lock is let go:
+    // an address space has its own lock.
+    let (mut v, procs): (Vec<T>, Vec<Option<Arc<Process>>>) = with(|s| {
+        let cur: Vec<u32> = s.current.to_vec();
+        s.threads
+            .iter()
+            .map(|t| {
+                let running = cur.contains(&t.id) && t.state == State::Running;
+                let since = cur.iter().position(|&c| c == t.id).map_or(now, |c| s.since[c]);
+                let mut name = [0u8; 16];
+                let n = t.name.len().min(16);
+                name[..n].copy_from_slice(&t.name.as_bytes()[..n]);
+                let st = match t.state {
+                    State::Ready => state::READY,
+                    State::Running => state::RUNNING,
+                    State::Sleeping(_) | State::WaitTick => state::SLEEPING,
+                    State::SendBlocked(_) | State::ReplyBlocked(_) | State::RecvBlocked { .. } => state::IPC,
+                    State::Dead => state::DEAD,
+                };
+                let entry = T {
+                    tid: t.id,
+                    pid: t.process.as_ref().map_or(0, |p| p.id()),
+                    name,
+                    state: st,
+                    priority: t.priority,
+                    idle: t.pin.is_some() as u8,
+                    _pad: 0,
+                    switch_ins: t.runs,
+                    cpu_us: t.cpu_us + if running { now.saturating_sub(since) } else { 0 },
+                    mem_bytes: 0,
+                };
+                (entry, t.process.clone())
+            })
+            .unzip()
+    });
+    for (t, p) in v.iter_mut().zip(procs) {
+        if let Some(p) = p {
+            t.mem_bytes = p.space.lock().owned_bytes();
+        }
+    }
+    v
 }

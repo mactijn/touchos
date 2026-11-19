@@ -106,6 +106,8 @@ fn main() {
     let mut trial = health::Trial::new(&opts, &init, table.net_state, table.nand_storage, boot_time);
     let mut watchdog = health::Watchdog::new(system, &opts, boot_time);
     let mut crash = selftest::CrashTest::new(opts.test_crash(), boot_time);
+    let metrics_board = touchos_rt::shm::board_of(table.init_metrics, true);
+    let mut metrics = touchos_proto::metrics::Publisher::default();
     let reboot_at = opts.autoreboot.map(|s| time::now_us() + s * SECOND);
     if let Some(s) = opts.autoreboot {
         warn!("test boot: rebooting in {s} s (autoreboot)");
@@ -124,6 +126,11 @@ fn main() {
         crash.step(&init, now);
         tests.step(&init, now);
         trial.step(init.failures, system, now);
+        if let Some(b) = &metrics_board
+            && let Some(bytes) = metrics.update(init.metrics(), now / 1000)
+        {
+            b.write(&bytes);
+        }
         if reboot_at.is_some_and(|t| t <= now) {
             info!("autoreboot: rebooting");
             let _ = sys::reboot(system);

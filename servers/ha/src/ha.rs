@@ -43,6 +43,11 @@ impl From<NetError> for HaError {
     }
 }
 
+/// For the metrics board: sessions that got through the login, and
+/// messages received.
+pub static SESSIONS: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+pub static EVENTS: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+
 /// Connect, stay connected, reconnect: forever. `calls` is the ring of
 /// the dashboard's service calls, sent while a session is up.
 pub async fn task(calls: Shared<Ring>) {
@@ -138,6 +143,7 @@ async fn session(host: &str, port: u16, token: &str, calls: &Shared<Ring>) -> Re
     // The dashboard wakes us when it queues a call.
     let calls_bit = exec::alloc_bit();
     let _ = touchos_rt::sys::mem_wait(calls.mem(), calls_bit);
+    SESSIONS.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
     let r = run(&mut ws, calls, &mut call, calls_bit, &mut next_id, &mut last_ping, &mut ping_outstanding).await;
     exec::free_bit(calls_bit);
     r
@@ -157,6 +163,7 @@ async fn run(
         let mut changed = false;
         while let Some(text) = ws.poll_text().await? {
             let msg = parse(&text)?;
+            EVENTS.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
             let applied = STATE.lock().apply(&msg);
             changed = true;
             match applied {

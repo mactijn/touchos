@@ -96,6 +96,17 @@ pub enum Rate {
     Mcs(u8),
 }
 
+impl Rate {
+    /// The rate in kbit/s (HT: 20 MHz, long guard interval).
+    pub fn kbps(self) -> u32 {
+        const MCS: [u32; 8] = [6500, 13_000, 19_500, 26_000, 39_000, 52_000, 58_500, 65_000];
+        match self {
+            Rate::Legacy(r) => value(r) as u32 * 500,
+            Rate::Mcs(m) => MCS.get(m as usize).copied().unwrap_or(0),
+        }
+    }
+}
+
 impl fmt::Display for Rate {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
@@ -140,6 +151,15 @@ mod tests {
 
     /// A typical 802.11g access point: b rates basic, g rates extended.
     const G: [u8; 12] = [0x82, 0x84, 0x8b, 0x96, 0x0c, 0x12, 0x18, 0x24, 0x30, 0x48, 0x60, 0x6c];
+
+    #[test]
+    fn kbps() {
+        assert_eq!(Rate::Legacy(0x0b).kbps(), 5500);
+        assert_eq!(Rate::Legacy(0x96).kbps(), 11_000); // the basic bit is ignored
+        assert_eq!(Rate::Legacy(0x6c).kbps(), 54_000);
+        assert_eq!(Rate::Mcs(7).kbps(), 65_000);
+        assert_eq!(Rate::Mcs(8).kbps(), 0);
+    }
 
     #[test]
     fn kinds() {
