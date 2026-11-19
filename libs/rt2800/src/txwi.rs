@@ -142,9 +142,41 @@ pub fn write(buf: &mut [u8], frame: &[u8], d: &Desc, max_packet: usize) -> Optio
     Some(total)
 }
 
+/// A beacon slot's contents (rt2860.c's `rt2860_setup_beacon`): a TXWI,
+/// then the frame. The chip sends it every beacon interval at 1 Mbit/s,
+/// writes the TSF into its timestamp and numbers it; no ACK, no station
+/// entry. None if it doesn't fit the slot.
+pub fn beacon(frame: &[u8]) -> Option<alloc::vec::Vec<u8>> {
+    if TXWI_SIZE + frame.len() > BCN_SIZE || frame.len() < 24 {
+        return None;
+    }
+    let mut b = alloc::vec![0u8; (TXWI_SIZE + frame.len() + 3) & !3];
+    b[0] = TXWI_TS;
+    b[1] = TXWI_TXOP_HT;
+    b[2..4].copy_from_slice(&phy_word(Rate::Legacy(2), false, false)?.to_le_bytes());
+    b[4] = TXWI_NSEQ;
+    b[5] = WCID_NONE;
+    b[6..8].copy_from_slice(&(frame.len() as u16).to_le_bytes());
+    b[TXWI_SIZE..TXWI_SIZE + frame.len()].copy_from_slice(frame);
+    Some(b)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn beacon_slot() {
+        let frame: Vec<u8> = (0..83).collect();
+        let b = beacon(&frame).unwrap();
+        assert_eq!(b.len(), 100); // 16 + 83, rounded up to 4
+        assert_eq!(&b[..8], &[TXWI_TS, TXWI_TXOP_HT, 0, 0, TXWI_NSEQ, WCID_NONE, 83, 0]);
+        assert_eq!(&b[8..16], &[0; 8]);
+        assert_eq!(&b[16..99], &frame[..]);
+        assert!(beacon(&[0; BCN_SIZE - TXWI_SIZE]).is_some());
+        assert!(beacon(&[0; BCN_SIZE - TXWI_SIZE + 1]).is_none());
+        assert!(beacon(&[0; 10]).is_none());
+    }
 
     #[test]
     fn phy_words() {

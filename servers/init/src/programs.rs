@@ -173,7 +173,7 @@ pub fn table(board: &'static Board, opts: &Opts, system: u32, initrd: &Mapping, 
         Program {
             name: "net",
             file: "net",
-            args: "",
+            args: if opts.setup_ap_force { "setup_ap=force" } else { "" },
             policy: Policy::Restart,
             caps: net_caps(net_ep, &config, &shared, system),
             priority: 3,
@@ -227,8 +227,8 @@ pub fn table(board: &'static Board, opts: &Opts, system: u32, initrd: &Mapping, 
     ]);
     programs.extend(platform(board, touch_ring, system));
     programs.extend(usb_ehci(board));
-    programs.extend(wifi_rt5370(board, &config, &shared, initrd, files));
-    programs.extend(fec(board, &shared));
+    programs.extend(wifi_rt5370(board, &config, &shared, initrd, files, opts.setup_ap_force));
+    programs.extend(fec(board, &shared, opts.setup_ap_force && matches!(board.wifi, crate::board::Wifi::None)));
     programs.extend(boiler(board));
     programs.extend(zwave(board));
     let tests_from = programs.len();
@@ -304,14 +304,21 @@ fn wifi_rt5370(
     sh: &Shared,
     initrd: &Mapping,
     files: &[(String, u64, u64)],
+    setup_ap_force: bool,
 ) -> Option<Program> {
     let Wifi::Rt5370 { ehci, firmware_file } = board.wifi else { return None };
     let regs = board::regs("USB", ehci.page)?;
     let mut caps = alloc::vec![("config", config.full), ("regs", regs)];
     caps.extend(board::irq("USB", ehci.irq).map(|c| ("irq", c)));
     caps.extend(driver_link(sh.wlan_link));
+    // Whether a cable is in: no setup network then.
+    caps.push(("wired_state", mint(sh.wired_link[2], rights::MAP_READ, 0)));
     caps.extend(initrd_file(initrd, files, firmware_file).map(|fw| ("firmware", fw)));
-    Some(driver("wifi", ehci.args, caps))
+    let args = match setup_ap_force {
+        true => alloc::boxed::Box::leak(alloc::format!("{} setup_ap=force", ehci.args).into_boxed_str()),
+        false => ehci.args,
+    };
+    Some(driver("wifi", args, caps))
 }
 
 /// The I²C devices: input to the
@@ -355,12 +362,14 @@ fn zwave(board: &Board) -> Option<Program> {
 }
 
 /// The ARM boards' Ethernet controller.
-fn fec(board: &Board, sh: &Shared) -> Option<Program> {
+/// `setup_ap`: a board without Wi-Fi (QEMU) under `setup_ap=force`: the
+/// wired link plays the setup network, for testing net, web and ui.
+fn fec(board: &Board, sh: &Shared, setup_ap: bool) -> Option<Program> {
     let (page, line) = board.fec?;
     let mut caps = driver_link(sh.wired_link).to_vec();
     caps.extend(board::regs("the FEC", page).map(|r| ("regs", r)));
     caps.extend(board::irq("the FEC", line).map(|r| ("irq", r)));
-    Some(driver("fec", "", caps))
+    Some(driver("fec", if setup_ap { "setup_ap=force" } else { "" }, caps))
 }
 
 /// Shared memory between services that init creates (and keeps, so a

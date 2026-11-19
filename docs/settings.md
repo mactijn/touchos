@@ -38,6 +38,16 @@ Saving can be turned off on the kernel command line (`storage=`):
 | `ro` | Changes apply until the next restart; a save is a logged dry run (the default for `selftest` boots) |
 | `off` | Storage isn't used |
 
+## The setup network
+
+A panel without a Wi-Fi network (`wifi.ssid`) and without an Ethernet cable opens a Wi-Fi network of its own, **`touchos-xxxxxx`**, open (no password). Its screen says so:
+
+1. Join `touchos-xxxxxx` with a phone or laptop.
+2. Open `http://192.168.4.1`. Phones usually open it by themselves: every name looked up on this network leads to the panel, so their connectivity check lands on the settings page ("sign in to network").
+3. Pair with the code on the panel's screen, and set `wifi.ssid` and `wifi.psk` (and Home Assistant) on the Wi-Fi page. Saving the Wi-Fi settings ends the setup network: the panel joins your network, and your phone goes back to its own. The panel is then at `http://touchos-xxxxxx.local/`.
+
+The network is open, so anyone in range can join it, but nothing can be changed without the code on the screen. It is 802.11g without power save; the panel is 192.168.4.1 and hands out .10-.50, with no way through to anywhere else. With a cable in, there is no setup network (`wifi.setup_ap = "off"` turns it off altogether).
+
 ## `touchos.toml`
 
 `config/touchos.toml` on your PC (from `config/touchos.example.toml`) is what `cargo xtask flash --config` writes into the Toon. After that, the copy in the Toon is the one that counts. Change it on the settings page; a later `flash --config` replaces it.
@@ -50,6 +60,9 @@ Saving can be turned off on the kernel command line (`storage=`):
 | `homeassistant.tls` | TLS on port 443 only | Connect with TLS (`wss://`). The certificate must chain to a root in Mozilla's root store (`libs/certs/cacerts.txt`), as a browser's would. |
 | `wifi.ssid` | | The Wi-Fi network. Only WPA2-PSK with AES is supported. Without it, the panel uses Ethernet. |
 | `wifi.psk` | | The Wi-Fi password (8-63 characters). |
+| `wifi.setup_ap` | `"unconfigured"` | When the panel opens its own open Wi-Fi network, `touchos-xxxxxx` (the same name as its `.local` name), to be set up from a phone at `http://192.168.4.1`: `"unconfigured"` while no `wifi.ssid` is set and no Ethernet cable is in; `"fallback"` also when the configured network has been gone for `setup_after_min` (then 5 minutes of setup network in turns with a minute of looking for the network); `"off"` never. See [the setup network](#the-setup-network). |
+| `wifi.setup_after_min` | `10` | With `setup_ap = "fallback"`: minutes the configured network must be gone. |
+| `wifi.setup_channel` | `6` | The setup network's channel (1-13). |
 | `wifi.ht` | `true` | Connect as an 802.11n (and WMM) device where the access point is one: faster, and needed for an access point in "n only" mode. Off: as an 802.11g device, as touchos did before. |
 | `display.brightness` | `80` | Backlight in percent while the panel is in use. |
 | `display.dim_brightness` | `15` | Backlight in percent after a while without touches. |

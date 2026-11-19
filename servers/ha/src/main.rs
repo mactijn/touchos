@@ -87,7 +87,7 @@ async fn http_test() {
         Some((h, p)) => (h, p.parse().unwrap_or(default_port)),
         None => (hostport, default_port),
     };
-    touchos_netc::wait_configured().await;
+    touchos_netc::wait_online().await;
     let t0 = time::now_ms();
     let result: Result<usize, NetError> = async {
         let ip = touchos_netc::resolve(host).await?;

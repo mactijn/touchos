@@ -29,10 +29,25 @@ impl Ui {
                 if selected { TEXT_ON_DARK } else { TEXT },
             );
         }
-        for (i, idx) in self.page_tiles().into_iter().enumerate() {
-            self.render_tile(st, i, idx);
+        // In setup mode the setup text takes the tiles' place (in the
+        // fallback mode tiles from before may still be there).
+        let setup_ap = net::with(|n| n.setup_ap).flatten();
+        if setup_ap.is_none() {
+            for (i, idx) in self.page_tiles().into_iter().enumerate() {
+                self.render_tile(st, i, idx);
+            }
         }
-        if self.visible.is_empty() {
+        if let Some(ssid) = setup_ap {
+            // The setup network is up: how to reach the settings page.
+            let (x, y) = (PAD + s(8), self.top + s(60));
+            let cv = &mut self.canvas;
+            cv.text(&f::TEXT, x, y, "Set up this panel from a phone or laptop:", TEXT_DIM);
+            let w = cv.text(&f::TEXT, x, y + s(56), "1.  Join the Wi-Fi network ", TEXT);
+            cv.text(&f::TEXT_BOLD, x + w, y + s(56), ssid.as_str(), TEXT);
+            let w = cv.text(&f::TEXT, x, y + s(104), "2.  Open ", TEXT);
+            cv.text(&f::TEXT_BOLD, x + w, y + s(104), "http://192.168.4.1", TEXT);
+            cv.text(&f::TEXT, x, y + s(160), "The pairing code appears here when the page asks for it.", TEXT_DIM);
+        } else if self.visible.is_empty() {
             let msg = if st.connected { "No tiles" } else { "" };
             self.canvas
                 .text(&f::TEXT, PAD + s(8), self.top + s(60), msg, TEXT_DIM);
@@ -95,7 +110,9 @@ impl Ui {
             let date = format!("{} {}", t.day, MONTHS[(t.month as usize + 11) % 12]);
             cv.text(&f::TEXT, PAD + s(8) + cw + s(36), s(138), &date, TEXT_DIM);
         }
-        let (status, ok) = if st.connected {
+        let (status, ok) = if net::with(|n| n.setup_ap.is_some()).unwrap_or(false) {
+            ("Setup mode", false)
+        } else if st.connected {
             ("Home Assistant", true)
         } else if net::with(|n| n.ipv4.is_some()).unwrap_or(false) {
             ("Connecting…", false)

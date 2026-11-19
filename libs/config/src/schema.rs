@@ -213,6 +213,30 @@ pub static FIELDS: &[Field] = &[
         "Connect as an 802.11n (and WMM) device where the access point is one: faster, and needed for an access point in \"n only\" mode. Off: as an 802.11g device.",
         Restart(Service::Wifi),
     ),
+    f(
+        "wifi.setup_ap",
+        Kind::Enum(&["unconfigured", "fallback", "off"]),
+        D::Str("unconfigured"),
+        "Setup network",
+        "An open Wi-Fi network of the panel's own, touchos-xxxxxx, for setting it up from a phone at http://192.168.4.1 (pairing with the code on the screen protects the settings). \"unconfigured\": while no Wi-Fi network is set and no Ethernet cable is in. \"fallback\": also when the configured network hasn't been found for setup_after_min minutes; the panel then alternates the setup network with looking for its own.",
+        Restart(Service::Wifi),
+    ),
+    f(
+        "wifi.setup_after_min",
+        Kind::Int { min: 2, max: 120 },
+        D::Int(10),
+        "Setup network after (minutes)",
+        "With setup_ap = \"fallback\": how long the configured network must be gone before the setup network comes up.",
+        Restart(Service::Wifi),
+    ),
+    f(
+        "wifi.setup_channel",
+        Kind::Int { min: 1, max: 13 },
+        D::Int(6),
+        "Setup network channel",
+        "The Wi-Fi channel of the setup network.",
+        Restart(Service::Wifi),
+    ),
     // [display]
     f(
         "display.brightness",

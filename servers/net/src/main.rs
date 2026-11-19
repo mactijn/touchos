@@ -4,7 +4,9 @@
 //! (see `touchos_proto::net`); they never see the stack itself. It also
 //! answers to `<net.hostname>.local` and announces the services others
 //! register (mDNS), sends the host name to DHCP (option 12), sets the clock
-//! from NTP and ships the kernel log to `debug.log_host`.
+//! from NTP and ships the kernel log to `debug.log_host`. When the Wi-Fi
+//! link is the panel's own setup network (`setup`), it takes 192.168.4.1
+//! and serves DHCP and DNS there instead.
 //!
 //! Capabilities: "ep" (our endpoint), "wired_rx"/"wired_tx"/"wired_state" and
 //! "wlan_rx"/... (frames and link state of each network driver), "status" (the board for the dashboard),
@@ -18,6 +20,7 @@ extern crate alloc;
 mod mdns;
 mod ntp;
 mod service;
+mod setup;
 
 use service::{Conn, Listener, handle, pump_conns, pump_listeners};
 
@@ -49,6 +52,8 @@ struct Provider {
     state: Shared<Board>,
     seq: u64,
     mac: Option<[u8; 6]>,
+    /// The link is our own setup network: its SSID.
+    ap: Option<HostName>,
 }
 
 /// The frames of the active link (the first provider that is up).
@@ -72,21 +77,28 @@ impl Frames {
         }
     }
 
-    /// Read the link states; returns the (provider, MAC) that should be
-    /// active now.
-    fn update(&mut self) -> Option<(usize, [u8; 6])> {
+    /// Read the link states; returns the (provider, MAC, setup network)
+    /// that should be active now: the setup network if the Wi-Fi server
+    /// runs it (it does so only without a cable, or for a test), else the
+    /// first provider that is up (wired before Wi-Fi).
+    fn update(&mut self) -> Option<(usize, [u8; 6], Option<HostName>)> {
         let mut buf = Vec::new();
         for p in &mut self.providers {
             let before = p.seq;
             let link: Option<Link> = p.state.read_as(&mut p.seq, &mut buf);
             if p.seq != before {
                 p.mac = link.and_then(|l| l.mac);
+                p.ap = link.and_then(|l| l.ap).filter(|_| p.mac.is_some());
             }
         }
+        let up = |(i, p): (usize, &Provider)| p.mac.map(|m| (i, m, p.ap));
+        let mut it = self.providers.iter().enumerate();
         self.providers
             .iter()
             .enumerate()
-            .find_map(|(i, p)| p.mac.map(|m| (i, m)))
+            .filter(|(_, p)| p.ap.is_some())
+            .find_map(up)
+            .or_else(|| it.find_map(up))
     }
 }
 
@@ -146,8 +158,11 @@ impl phy::Device for Frames {
 pub struct Net {
     pub iface: Interface,
     pub sockets: SocketSet<'static>,
-    dhcp: SocketHandle,
     pub dns: SocketHandle,
+    /// The DHCP client; None on the setup network.
+    dhcp: Option<SocketHandle>,
+    /// On the setup network: its DHCP and DNS servers.
+    setup: Option<setup::Setup>,
     log_udp: SocketHandle,
     pub ipv4: Option<Ipv4Cidr>,
     /// The time servers DHCP named (option 42), for ntp.
@@ -166,6 +181,8 @@ struct Setup<'a> {
     dhcp_options: &'static [DhcpOption<'static>],
     mdns: bool,
     services: &'a [touchos_mdns::Service],
+    /// The link is our own setup network.
+    setup_ap: bool,
 }
 
 impl Net {
@@ -173,6 +190,47 @@ impl Net {
         let config = Config::new(HardwareAddress::Ethernet(EthernetAddress(mac)));
         let iface = Interface::new(config, dev, now());
         let mut sockets = SocketSet::new(Vec::new());
+        let dhcp = (!setup.setup_ap).then(|| sockets.add(dhcp_client(setup.dhcp_options)));
+        let dns = sockets.add(dns::Socket::new(&[], vec![None, None, None, None]));
+        let mut log = udp::Socket::new(
+            udp::PacketBuffer::new(vec![udp::PacketMetadata::EMPTY; 2], vec![0; 256]),
+            udp::PacketBuffer::new(vec![udp::PacketMetadata::EMPTY; 64], vec![0; 32 * 1024]),
+        );
+        let _ = log.bind(5556);
+        let log_udp = sockets.add(log);
+        let mut iface = iface;
+        let mut mdns = setup
+            .mdns
+            .then(|| mdns::Mdns::start(&mut iface, &mut sockets, &setup.host, setup.services))
+            .flatten();
+        let mut ipv4 = None;
+        let setup_net = if setup.setup_ap { setup::Setup::start(&mut iface, &mut sockets) } else { None };
+        if setup_net.is_some() {
+            let c = setup::Setup::cidr();
+            ipv4 = Some(c);
+            if let Some(m) = &mut mdns {
+                m.responder.set_ip(Some(c.address().octets()), time::now_ms());
+            }
+        }
+        Net {
+            iface,
+            sockets,
+            dhcp,
+            setup: setup_net,
+            dns,
+            log_udp,
+            ipv4,
+            ntp_servers: Vec::new(),
+            next_port: 49152,
+            host: setup.host,
+            mdns,
+        }
+    }
+}
+
+/// The DHCP client of a normal link.
+fn dhcp_client(options: &'static [DhcpOption<'static>]) -> dhcpv4::Socket<'static> {
+    {
         // A DISCOVER right after link-up can get lost (a switch port that
         // isn't forwarding yet: seen on the Toon). smoltcp waits 10 s before
         // the next one; 4 s is plenty on a LAN.
@@ -186,33 +244,12 @@ impl Net {
         dhcp.set_receive_packet_buffer(Box::leak(vec![0u8; 1024].into_boxed_slice()));
         // Our name, so the router lists us by it (and may put it in its
         // DNS). The client identifier (option 61) is smoltcp's own: the MAC.
-        dhcp.set_outgoing_options(setup.dhcp_options);
-        let dhcp = sockets.add(dhcp);
-        let dns = sockets.add(dns::Socket::new(&[], vec![None, None, None, None]));
-        let mut log = udp::Socket::new(
-            udp::PacketBuffer::new(vec![udp::PacketMetadata::EMPTY; 2], vec![0; 256]),
-            udp::PacketBuffer::new(vec![udp::PacketMetadata::EMPTY; 64], vec![0; 32 * 1024]),
-        );
-        let _ = log.bind(5556);
-        let log_udp = sockets.add(log);
-        let mut iface = iface;
-        let mdns = setup
-            .mdns
-            .then(|| mdns::Mdns::start(&mut iface, &mut sockets, &setup.host, setup.services))
-            .flatten();
-        Net {
-            iface,
-            sockets,
-            dhcp,
-            dns,
-            log_udp,
-            ipv4: None,
-            ntp_servers: Vec::new(),
-            next_port: 49152,
-            host: setup.host,
-            mdns,
-        }
+        dhcp.set_outgoing_options(options);
+        dhcp
     }
+}
+
+impl Net {
 
     /// The name we answer to now.
     fn current_host(&self) -> &str {
@@ -230,7 +267,8 @@ impl Net {
 
     /// DHCP events after a poll.
     fn dhcp(&mut self) {
-        let event = match self.sockets.get_mut::<dhcpv4::Socket>(self.dhcp).poll() {
+        let Some(handle) = self.dhcp else { return };
+        let event = match self.sockets.get_mut::<dhcpv4::Socket>(handle).poll() {
             Some(dhcpv4::Event::Configured(c)) => {
                 self.ntp_servers = c.packet.map(|p| ntp_option(&p)).unwrap_or_default();
                 Some(Some((c.address, c.router, c.dns_servers.iter().copied().collect::<Vec<_>>())))
@@ -297,6 +335,11 @@ struct State {
     log_host: Option<IpEndpoint>,
     log_cursor: u64,
     system: Option<u32>,
+    /// The active link is our setup network: its SSID.
+    setup_ap: Option<HostName>,
+    /// `setup_ap=force` (a test boot): the log goes to the setup network's
+    /// broadcast address, so a test client can read it.
+    log_broadcast: bool,
     /// `net.hostname`; None = the default for the MAC.
     hostname: Option<String>,
     /// `net.mdns`.
@@ -344,6 +387,22 @@ pub fn with_net<R>(f: impl FnOnce(&mut Net) -> R) -> Option<R> {
     with(|s| s.net.as_mut().map(f))
 }
 
+/// The interface's generation: bumped whenever it is made again (a link
+/// change). A socket handle is only good for the generation it was made
+/// in: a new interface has a new socket set.
+pub fn generation() -> u32 {
+    with(|s| s.generation)
+}
+
+/// Like [`with_net`], but only while the interface is still that of
+/// `generation` (for handles kept across awaits).
+pub fn with_net_of<R>(generation: u32, f: impl FnOnce(&mut Net) -> R) -> Option<R> {
+    with(|s| {
+        let g = s.generation;
+        s.net.as_mut().filter(|_| g == generation).map(f)
+    })
+}
+
 fn status(st: &State) -> Status {
     Status {
         ipv4: st
@@ -357,17 +416,27 @@ fn status(st: &State) -> Status {
             .as_ref()
             .and_then(|n| HostName::new(n.current_host()))
             .unwrap_or_default(),
+        setup_ap: st.setup_ap.filter(|_| st.net.as_ref().is_some_and(|n| n.setup.is_some())),
     }
 }
 
 /// Send new kernel log lines to `debug.log_host`.
 fn ship_log(st: &mut State) {
-    let (Some(ep), Some(sys_cap)) = (st.log_host, st.system) else {
+    let (Some(mut ep), Some(sys_cap)) = (st.log_host, st.system) else {
         return;
     };
     let Some(net) = st.net.as_mut().filter(|n| n.ipv4.is_some()) else {
         return;
     };
+    if net.setup.is_some() {
+        // The log host isn't on the setup network: only a test boot
+        // sends it there, to everyone on it.
+        if !st.log_broadcast {
+            return;
+        }
+        let b = touchos_setupnet::ADDR;
+        ep = IpEndpoint::new(IpAddress::Ipv4(Ipv4Address::new(b[0], b[1], b[2], 255)), ep.port);
+    }
     let udp = net.sockets.get_mut::<udp::Socket>(net.log_udp);
     let mut buf = [0u8; 2048];
     while udp.can_send() {
@@ -406,21 +475,28 @@ async fn stack(link_bit: usize, tx_bit: usize, board: Option<Shared<Board>>) {
         // Link up/down, and which driver carries it.
         with(|st| {
             let now = st.frames.update();
-            let cur = st.frames.active.zip(st.mac);
+            let cur = st.frames.active.zip(st.mac).map(|(i, m)| (i, m, st.setup_ap));
             if now != cur {
-                st.frames.active = now.map(|(i, _)| i);
-                st.mac = now.map(|(_, m)| m);
+                st.frames.active = now.map(|(i, _, _)| i);
+                st.mac = now.map(|(_, m, _)| m);
+                st.setup_ap = now.and_then(|(_, _, ap)| ap);
                 st.generation += 1;
                 st.net = None;
                 if let Some(m) = st.mac {
+                    let setup_ap = st.setup_ap.is_some();
                     let State { frames, hostname, mdns, services, dhcp_options: cache, .. } = st;
                     let host = wanted_host(hostname.as_deref(), m);
-                    let setup = Setup { dhcp_options: dhcp_options(cache, &host), host, mdns: *mdns, services };
+                    let setup = Setup { dhcp_options: dhcp_options(cache, &host), host, mdns: *mdns, services, setup_ap };
                     st.net = Some(Net::new(m, frames, setup));
                 }
                 st.queries.clear();
                 match now {
-                    Some((i, _)) => info!(
+                    Some((i, _, Some(ssid))) => info!(
+                        "interface up on {} as the setup network {}",
+                        st.frames.providers[i].name,
+                        ssid.as_str()
+                    ),
+                    Some((i, _, None)) => info!(
                         "interface up on {}, waiting for DHCP",
                         st.frames.providers[i].name
                     ),
@@ -435,6 +511,9 @@ async fn stack(link_bit: usize, tx_bit: usize, board: Option<Shared<Board>>) {
                     n.iface.poll(now(), frames, &mut n.sockets);
                     n.dhcp();
                     let mdns = n.mdns.as_mut().and_then(|m| m.pump(&mut n.sockets));
+                    if let Some(s) = n.setup.as_mut() {
+                        s.pump(&mut n.sockets);
+                    }
                     n.iface
                         .poll_delay(now(), &n.sockets)
                         .map_or(10, |d| d.total_millis())
@@ -492,7 +571,7 @@ fn main() {
         tx.init(proto::FRAME_SLOTS, FRAME_SLOT);
         let _ = sys::mem_wait(rx.mem(), link_bit);
         let _ = sys::mem_wait(state.mem(), link_bit);
-        providers.push(Provider { name: label, rx, tx, state, seq: 0, mac: None });
+        providers.push(Provider { name: label, rx, tx, state, seq: 0, mac: None, ap: None });
     }
     if providers.is_empty() {
         warn!("no network drivers; nothing to do");
@@ -527,6 +606,8 @@ fn main() {
         mdns: cfg.net.mdns,
         services: Vec::new(),
         dhcp_options: None,
+        setup_ap: None,
+        log_broadcast: touchos_rt::arg("setup_ap") == Some("force"),
     };
     STATE.with(|s| *s = Some(state));
     exec::spawn(stack(link_bit, tx_bit, board));
@@ -572,7 +653,9 @@ fn apply_net_settings(st: &mut State, cfg: &touchos_config::Net) {
     let host = wanted_host(cfg.hostname.as_deref(), *mac);
     if host != n.host {
         let options = dhcp_options(cache, &host);
-        n.sockets.get_mut::<dhcpv4::Socket>(n.dhcp).set_outgoing_options(options);
+        if let Some(h) = n.dhcp {
+            n.sockets.get_mut::<dhcpv4::Socket>(h).set_outgoing_options(options);
+        }
         if let Some(m) = &mut n.mdns {
             m.set_host(&host);
         }
@@ -613,7 +696,8 @@ pub async fn resolve(name: &str) -> Option<IpAddress> {
     if let Ok(ip) = name.parse::<Ipv4Address>() {
         return Some(IpAddress::Ipv4(ip));
     }
-    let q = with_net(|n| {
+    let generation = generation();
+    let q = with_net_of(generation, |n| {
         let cx = n.iface.context();
         n.sockets
             .get_mut::<dns::Socket>(n.dns)
@@ -622,7 +706,8 @@ pub async fn resolve(name: &str) -> Option<IpAddress> {
     })??;
     let end = time::now_ms() + 5000;
     loop {
-        let r = with_net(|n| n.sockets.get_mut::<dns::Socket>(n.dns).get_query_result(q))?;
+        // None (the link changed meanwhile): the query went with it.
+        let r = with_net_of(generation, |n| n.sockets.get_mut::<dns::Socket>(n.dns).get_query_result(q))?;
         match r {
             Ok(addrs) => return addrs.first().copied(),
             Err(dns::GetQueryResultError::Pending) if time::now_ms() < end => {
@@ -633,9 +718,10 @@ pub async fn resolve(name: &str) -> Option<IpAddress> {
     }
 }
 
-/// Wait until DHCP has given us an address.
+/// Wait until DHCP has given us an address (not the setup network's:
+/// there is no internet behind it).
 pub async fn wait_configured() {
-    while with_net(|n| n.ipv4.is_some()) != Some(true) {
+    while with_net(|n| n.ipv4.is_some() && n.setup.is_none()) != Some(true) {
         exec::sleep_ms(200).await;
     }
 }

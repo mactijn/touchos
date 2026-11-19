@@ -16,7 +16,15 @@ pub struct Status {
     /// [`default_hostname`], with `-2`, `-3`... after an mDNS conflict.
     /// Empty while no link is up.
     pub hostname: HostName,
+    /// The setup network is up (the Wi-Fi link is our own open access
+    /// point, see `wifi.setup_ap`): its SSID. Then `ipv4` is
+    /// [`SETUP_ADDR`], and there is no way out to the internet.
+    pub setup_ap: Option<HostName>,
 }
+
+/// Our address on the setup network, and its prefix length.
+pub const SETUP_ADDR: [u8; 4] = [192, 168, 4, 1];
+pub const SETUP_PREFIX: u8 = 24;
 
 /// A host name of at most 63 bytes (one DNS label), kept inline so that
 /// [`Status`] stays `Copy`.
@@ -109,6 +117,9 @@ pub const LINK_BYTES: u64 = 4096;
 pub struct Link {
     /// MAC address of the active adapter; None = no link.
     pub mac: Option<[u8; 6]>,
+    /// The link is an access point of our own, the setup network: its
+    /// SSID. (A wired link, or a Wi-Fi station: None.)
+    pub ap: Option<HostName>,
 }
 
 pub const FRAME_SLOTS: u32 = 64;
@@ -246,8 +257,12 @@ mod tests {
     fn host_names() {
         assert_eq!(default_hostname([0, 0x0f, 0x11, 0x22, 0x1a, 0x2b]).as_str(), "touchos-221a2b");
         let h = HostName::new("touchos-221a2b-2").unwrap();
-        let s = Status { ipv4: Some(([10, 0, 0, 5], 24)), generation: 3, hostname: h };
+        let s = Status { ipv4: Some(([10, 0, 0, 5], 24)), generation: 3, hostname: h, setup_ap: None };
         assert_eq!(crate::decode::<Status>(&crate::encode(&s)), Some(s));
+        let s = Status { setup_ap: Some(default_hostname([0; 6])), ..s };
+        assert_eq!(crate::decode::<Status>(&crate::encode(&s)), Some(s));
+        let l = Link { mac: Some([2; 6]), ap: Some(default_hostname([2; 6])) };
+        assert_eq!(crate::decode::<Link>(&crate::encode(&l)), Some(l));
         assert!(HostName::new(&"a".repeat(64)).is_none());
         assert!(HostName::new(&"a".repeat(63)).is_some());
     }

@@ -55,10 +55,9 @@ Nothing goes from the panel to Home Assistant yet: `servers/ha` only mirrors Hom
   2. The ESPHome native API, so no broker is needed. The bridge registers `_esphomelib._tcp` with net's mDNS (`touchos_netc::mdns_register`), so Home Assistant discovers the panel by itself ([#17](https://github.com/mactijn/touchos/issues/17)).
 
 ## First setup and factory reset
-A new panel needs its settings flashed with `cargo xtask flash --config`, or a cable and its IP: without `wifi.ssid` it has no network, and its IP is never shown on screen.
-
+- **Today:** a panel without `wifi.ssid` and without a cable opens its own open Wi-Fi network, `touchos-xxxxxx` (`wifi.setup_ap`), with DHCP, a DNS server that answers every name with the panel, and captive-portal redirects to the settings page; the screen says how to reach it, and the PIN pairing protects the settings. With `setup_ap = "fallback"` also while the configured network is gone.
 - **Steps:**
-  1. A setup Wi-Fi network: `touchos-XXXX`, open, only while unconfigured; the on-screen PIN pairing protects the settings. It needs an AP mode in `libs/wlan`/`libs/rt2800` (beacons, probe/auth/assoc responses, FromDS framing), and a DHCP server, catch-all DNS and captive-portal redirects in `net` ([#23](https://github.com/mactijn/touchos/issues/23)).
+  1. The setup network on phones: Android's and iOS's captive-portal pop-up, and power-save stations (there is no frame buffering yet).
   2. An on-boarding wizard in the settings page: pair, pick a Wi-Fi network from a scan, time zone, Home Assistant (optional; skipping it picks the thermostat app), Z-Wave mode ([#25](https://github.com/mactijn/touchos/issues/25)).
   3. A factory reset: erase the whole config ring (older records keep the old PSK and token otherwise) and SetDefault on the Z-Wave chip, done at boot so a power cut can't leave it halfway. From the System page, or by holding the screen during boot ([#22](https://github.com/mactijn/touchos/issues/22)).
 

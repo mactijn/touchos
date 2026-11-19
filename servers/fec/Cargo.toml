@@ -15,4 +15,5 @@ bench = false
 [dependencies]
 touchos-rt = { path = "../../libs/rt" }
 touchos-drv = { path = "../../libs/drv" }
+touchos-proto = { path = "../../libs/proto" }
 log.workspace = true

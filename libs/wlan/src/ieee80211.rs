@@ -1,6 +1,7 @@
 //! 802.11 frame construction and parsing for a station: authentication,
 //! association, block-ack refusals, and the data-frame <-> Ethernet
-//! conversion (QoS data and A-MSDUs included).
+//! conversion (QoS data and A-MSDUs included); and the data framing of an
+//! access point (`ap`'s management frames are its own).
 
 use alloc::vec::Vec;
 
@@ -12,6 +13,11 @@ pub const FC0_MGMT_ASSOC_RESP: u8 = 0x10;
 pub const FC0_MGMT_DEAUTH: u8 = 0xc0;
 pub const FC0_MGMT_DISASSOC: u8 = 0xa0;
 pub const FC0_MGMT_ACTION: u8 = 0xd0;
+pub const FC0_MGMT_REASSOC_REQ: u8 = 0x20;
+pub const FC0_MGMT_REASSOC_RESP: u8 = 0x30;
+pub const FC0_MGMT_PROBE_REQ: u8 = 0x40;
+pub const FC0_MGMT_PROBE_RESP: u8 = 0x50;
+pub const FC0_MGMT_BEACON: u8 = 0x80;
 pub const FC0_DATA: u8 = 0x08;
 pub const FC0_QOS_DATA: u8 = 0x88;
 pub const FC1_TO_DS: u8 = 0x01;
@@ -20,7 +26,7 @@ pub const FC1_PROTECTED: u8 = 0x40;
 
 const LLC_SNAP: [u8; 6] = [0xaa, 0xaa, 0x03, 0x00, 0x00, 0x00];
 
-fn mgmt_header(fc0: u8, da: &[u8; 6], sa: &[u8; 6], bssid: &[u8; 6]) -> Vec<u8> {
+pub(crate) fn mgmt_header(fc0: u8, da: &[u8; 6], sa: &[u8; 6], bssid: &[u8; 6]) -> Vec<u8> {
     let mut f = Vec::with_capacity(64);
     f.extend_from_slice(&[fc0, 0, 0, 0]); // fc, duration (firmware or set_duration)
     f.extend_from_slice(da);
@@ -334,7 +340,27 @@ pub fn eth_to_80211(eth: &[u8], me: &[u8; 6], bssid: &[u8; 6], protected: bool, 
     Some(f)
 }
 
-/// 802.11 data frame (from-DS) -> Ethernet frames: one, or one per
+/// Ethernet frame -> 802.11 data frame from an access point to a
+/// station (from-DS): addr1 the destination, addr2 the BSSID, addr3 the
+/// source. Plain data (the access point offers no QoS), unprotected.
+pub fn eth_to_80211_from_ds(eth: &[u8], bssid: &[u8; 6]) -> Option<Vec<u8>> {
+    if eth.len() < 14 {
+        return None;
+    }
+    let (da, sa, ethertype, payload) = (&eth[0..6], &eth[6..12], &eth[12..14], &eth[14..]);
+    let mut f = Vec::with_capacity(32 + payload.len());
+    f.extend_from_slice(&[FC0_DATA, FC1_FROM_DS, 0, 0]);
+    f.extend_from_slice(da);
+    f.extend_from_slice(bssid);
+    f.extend_from_slice(sa);
+    f.extend_from_slice(&[0, 0]);
+    f.extend_from_slice(&LLC_SNAP);
+    f.extend_from_slice(ethertype);
+    f.extend_from_slice(payload);
+    Some(f)
+}
+
+/// 802.11 data frame (from-DS, or to-DS at an access point) -> Ethernet frames: one, or one per
 /// MSDU of an A-MSDU; none for a frame that isn't data, has no LLC/SNAP
 /// header (a QoS Null), or is broken. `ccmp_hdr` and `ccmp_mic`: the
 /// bytes of CCMP header and MIC still in the frame (0 if they were
@@ -346,6 +372,7 @@ pub fn data_80211_to_eth(frame: &[u8], ccmp_hdr: usize, ccmp_mic: usize) -> Vec<
     };
     let (da, sa) = match h.fc1 & 3 {
         FC1_FROM_DS => (h.addr1, h.addr3),
+        FC1_TO_DS => (h.addr3, h.addr2),
         0 => (h.addr1, h.addr2),
         _ => return out,
     };

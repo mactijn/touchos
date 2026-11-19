@@ -79,7 +79,12 @@ pub struct Rt5370<H: HostController> {
     first_window: bool,
     /// The controller's interrupt (else `recv` is polled).
     irq: Option<Irq>,
+    /// As an access point: when the beacon count is logged next.
+    ap_report_at: u64,
 }
+
+/// As an access point, how often the beacons sent are logged.
+const AP_REPORT_MS: u64 = 60_000;
 
 impl<H: HostController> Rt5370<H> {
     pub fn new(hc: H, dev: Device<H>, chip: Rt2800) -> Rt5370<H> {
@@ -98,6 +103,7 @@ impl<H: HostController> Rt5370<H> {
             window_end: 0,
             first_window: true,
             irq: None,
+            ap_report_at: 0,
         }
     }
 
@@ -152,6 +158,17 @@ impl<H: HostController> Rt5370<H> {
         let ack = frame.len() >= 10 && frame[4] & 1 == 0;
         let r = self.chip.send(&mut self.hc, &mut self.dev, frame, rate, ack, ccmp).await;
         r.map_err(|e| self.fail(e))
+    }
+
+    /// As an access point: the beacons sent since the last report (the
+    /// check that the chip sends them at all).
+    async fn ap_report(&mut self) {
+        let Some(c) = self.counters().await else { return };
+        let total = self.since_join;
+        info!(
+            "rt2800: access point: {} beacons in the last minute; since it came up {} frames ok, {} failed, {} retries",
+            c.beacons, total.ok, total.failed, total.retries
+        );
     }
 
     async fn counters(&mut self) -> Option<TxCounters> {
@@ -436,6 +453,49 @@ impl<H: HostController> Radio for Rt5370<H> {
             "last frame: {last}; since joining: {} ok, {} failed, {} retries; {} frames queued, {} USB errors",
             s.ok, s.failed, s.retries, t.frames, t.usb_errors
         )
+    }
+
+    async fn start_ap(&mut self, channel: u8, beacon: &[u8]) -> Result<()> {
+        let r = self.chip.start_ap(&mut self.hc, &mut self.dev, channel, beacon).await;
+        r.map_err(|e| self.fail(e))?;
+        // What `ap::Ap` advertises: 1-11 Mbit/s basic, then 802.11g's.
+        let rates = [0x82, 0x84, 0x8b, 0x96, 0x0c, 0x12, 0x18, 0x24, 0x30, 0x48, 0x60, 0x6c];
+        self.mgmt_rate = 2;
+        self.amrr = legacy_amrr(&rates);
+        self.since_join = TxCounters::default();
+        self.window_end = 0;
+        self.next_tick = 0;
+        self.first_window = true;
+        self.ap_report_at = time::now_ms() + AP_REPORT_MS;
+        info!(
+            "rt2800: access point {} on channel {channel}: beacons every {} TU at 1 Mbit/s, data at {}",
+            Mac(&self.chip.cal.mac),
+            touchos_wlan::ap::BEACON_INTERVAL,
+            self.amrr.rate()
+        );
+        Ok(())
+    }
+
+    async fn send_ap(&mut self, frame: &[u8]) -> Result<()> {
+        let group = frame.len() >= 10 && frame[4] & 1 != 0;
+        let data = frame.first().is_some_and(|fc| (fc >> 2) & 3 == 2);
+        let mut f = frame.to_vec();
+        if !group && f.len() >= 4 {
+            // The NAV for our frame and its ACK: the ACK at 1 Mbit/s,
+            // the slowest it can come at (a little long for OFDM).
+            touchos_wlan::ieee80211::set_duration(&mut f, touchos_wlan::ieee80211::ack_duration(2, false));
+        }
+        let rate = if data && !group { self.amrr.rate() } else { Rate::Legacy(self.mgmt_rate) };
+        self.send(&f, rate, None).await?;
+        if data && !group {
+            self.tx_tick().await;
+        }
+        let now = time::now_ms();
+        if now >= self.ap_report_at {
+            self.ap_report_at = now + AP_REPORT_MS;
+            self.ap_report().await;
+        }
+        Ok(())
     }
 
     /// Leave the BSS (see `Rt2800::leave`) and drop what was received

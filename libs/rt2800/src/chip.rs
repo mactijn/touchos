@@ -60,6 +60,8 @@ pub struct Rt2800 {
     /// The access point's pairwise key is in the chip
     /// ([`Rt2800::set_pairwise_key`]).
     pairwise_key: bool,
+    /// We are the access point ([`Rt2800::start_ap`]).
+    ap: bool,
 }
 
 /// What [`Rt2800::join`] needs to know about the BSS.
@@ -101,13 +103,17 @@ pub struct TxCounters {
     pub failed: u32,
     /// Retransmissions.
     pub retries: u32,
+    /// Beacons sent (as an access point).
+    pub beacons: u32,
 }
 
 impl TxCounters {
+    /// Wrapping: a running total since bring-up wraps after years.
     pub fn add(&mut self, o: TxCounters) {
-        self.ok += o.ok;
-        self.failed += o.failed;
-        self.retries += o.retries;
+        self.ok = self.ok.wrapping_add(o.ok);
+        self.failed = self.failed.wrapping_add(o.failed);
+        self.retries = self.retries.wrapping_add(o.retries);
+        self.beacons = self.beacons.wrapping_add(o.beacons);
     }
 }
 
@@ -143,6 +149,11 @@ const STATION_FILTER: u32 = DROP_CRC_ERR
 /// mDNS needs 224.0.0.251; the station drops the other groups
 /// (`Hdr::wanted_group`).
 const JOINED_FILTER: u32 = STATION_FILTER | DROP_NOT_MY_BSSD;
+
+/// An access point (the setup network): errors, control frames,
+/// duplicates and unicast frames for others dropped. Not
+/// DROP_NOT_MY_BSSD: probe requests name the wildcard BSSID.
+const AP_FILTER: u32 = STATION_FILTER;
 
 /// Receive only: everything but errors and control frames, so beacons and
 /// probe responses of every network arrive (probe responses to other
@@ -254,7 +265,7 @@ impl Rt2800 {
         );
 
         let tx = ep_out.map(|e| tx::Tx::new(e.address, e.max_packet));
-        let mut chip = Rt2800 { mac_ver, mac_rev, cal, channel: 0, rx: rx::Rx::new(ep_in.address), tx, bss: None, seq: 0, pairwise_key: false };
+        let mut chip = Rt2800 { mac_ver, mac_rev, cal, channel: 0, rx: rx::Rx::new(ep_in.address), tx, bss: None, seq: 0, pairwise_key: false, ap: false };
         let t = time::now_ms();
         chip.init_mac(&mut io).await?;
         ::log::info!("rt2800: MAC set up ({} ms)", since(t));
@@ -602,26 +613,8 @@ impl Rt2800 {
         io.write(MAC_BSSID_DW0, u32::from_le_bytes([b[0], b[1], b[2], b[3]])).await?;
         io.write(MAC_BSSID_DW1, b[4] as u32 | (b[5] as u32) << 8).await?;
         io.write(RX_FILTR_CFG, JOINED_FILTER).await?;
-        let v = io.read(BKOFF_SLOT_CFG).await?;
-        io.write(BKOFF_SLOT_CFG, (v & !SLOT_TIME_MASK) | if j.short_slot { 9 } else { 20 }).await?;
-        let v = io.read(AUTO_RSP_CFG).await?;
-        io.write(AUTO_RSP_CFG, if j.short_preamble { v | CCK_SHORT_EN } else { v & !CCK_SHORT_EN }).await?;
         // 802.11g: 1, 2, 5.5, 11, 6, 12, 24 Mbit/s; 802.11b: 1, 2.
-        io.write(LEGACY_BASIC_RATE, if j.ofdm { 0x15f } else { 0x003 }).await?;
-        // On retries the chip steps down a rate each time (TX_RTY_CFG has
-        // the automatic fallback on): OFDM 54 -> 48 -> ... -> 6, CCK
-        // 11 -> 5.5 -> 2 -> 1. Entries: bit 3 = OFDM, low bits the index.
-        let ofdm = |i: u32| 8 | i;
-        io.write(
-            LG_FBK_CFG0,
-            ofdm(6) << 28 | ofdm(5) << 24 | ofdm(4) << 20 | ofdm(3) << 16 | ofdm(2) << 12 | ofdm(1) << 8 | ofdm(0) << 4 | ofdm(0),
-        )
-        .await?;
-        io.write(LG_FBK_CFG1, 2 << 12 | 1 << 8).await?;
-        // HT: MCS n -> n - 1 down to MCS 0 (Linux's values; MCS 8-15 for
-        // completeness, one stream has none).
-        io.write(HT_FBK_CFG0, 0x6543_2100).await?;
-        io.write(HT_FBK_CFG1, 0xedcb_a988).await?;
+        link_cfg(&mut io, j.short_slot, j.short_preamble, if j.ofdm { 0x15f } else { 0x003 }).await?;
         // HT protection (Linux's rt2800_config_ht_opmode, for 20 MHz):
         // RTS/CTS before HT frames while the access point says non-HT
         // stations are about (non-member or mixed mode), at OFDM 24 Mbit/s,
@@ -636,6 +629,59 @@ impl Rt2800 {
         read_tx_counters(&mut io).await?;
         self.bss = Some(*j);
         Ok(())
+    }
+
+    /// Become an open 802.11g access point on `chan` with our MAC as the
+    /// BSSID, after OpenBSD's rt2860.c (`rt2860_setup_beacon`,
+    /// `rt2860_enable_tsf_sync` for HOSTAP; run(4) has no access point
+    /// mode): the beacon in slot 0, read back to check it, then the TSF
+    /// and TBTT timers with beacons on, syncing with nobody. Short slot,
+    /// long preamble; 1, 2, 5.5 and 11 Mbit/s basic (what `ap::Ap`
+    /// advertises). [`Rt2800::leave`] ends it.
+    pub async fn start_ap<H: HostController>(&mut self, hc: &mut H, dev: &mut Device<H>, chan: u8, beacon: &[u8]) -> Result<()> {
+        let slot = crate::txwi::beacon(beacon).ok_or(Error::Chip("beacon too long"))?;
+        let mut io = Io::new(hc, dev);
+        self.set_chan(&mut io, chan).await?;
+        let b = self.cal.mac;
+        io.write(MAC_BSSID_DW0, u32::from_le_bytes([b[0], b[1], b[2], b[3]])).await?;
+        io.write(MAC_BSSID_DW1, b[4] as u32 | (b[5] as u32) << 8).await?;
+        io.write(RX_FILTR_CFG, AP_FILTER).await?;
+        link_cfg(&mut io, true, false, 0x00f).await?;
+        for reg in [MM20_PROT_CFG, GF20_PROT_CFG] {
+            let v = io.read(reg).await? & !(PROT_RATE_MASK | PROT_CTRL_MASK);
+            io.write(reg, v | 0x4004).await?;
+        }
+        // Beacons off while the slot is written.
+        let v = io.read(BCN_TIME_CFG).await?;
+        io.write(BCN_TIME_CFG, v & !(BCN_TX_EN | TSF_TIMER_EN | TBTT_TIMER_EN)).await?;
+        io.zero_region(BCN_BASE0, BCN_SIZE / 4).await?;
+        io.write_region(BCN_BASE0, &slot).await?;
+        let mut back = alloc::vec![0u8; slot.len()];
+        io.read_region(BCN_BASE0, &mut back).await?;
+        if back != slot {
+            ::log::warn!("rt2800: beacon read-back differs; writing it again with 16-bit writes");
+            io.write_region_2(BCN_BASE0, &slot).await?;
+            io.read_region(BCN_BASE0, &mut back).await?;
+            if back != slot {
+                return Err(Error::Chip("the beacon doesn't stay in the chip"));
+            }
+        }
+        let interval = (touchos_wlan::ap::BEACON_INTERVAL as u32 * 16) & BCN_INTVAL_MASK;
+        let v = io.read(BCN_TIME_CFG).await?;
+        io.write(
+            BCN_TIME_CFG,
+            (v & !0x1f_ffff) | interval | TSF_TIMER_EN | TBTT_TIMER_EN | TSF_SYNC_MODE_HOSTAP | BCN_TX_EN,
+        )
+        .await?;
+        io.mcu_cmd(MCU_CMD_LEDS, LED_RADIO | LED_LINK_2GHZ | (self.cal.leds & 0x7f) as u16).await?;
+        read_tx_counters(&mut io).await?;
+        self.ap = true;
+        Ok(())
+    }
+
+    /// The access point is up ([`Rt2800::start_ap`]).
+    pub fn is_ap(&self) -> bool {
+        self.ap
     }
 
     /// Associated: synchronise the TSF with the BSS's beacons
@@ -695,6 +741,7 @@ impl Rt2800 {
     pub async fn leave<H: HostController>(&mut self, hc: &mut H, dev: &mut Device<H>) -> Result<()> {
         // Forgotten first, so a failure below can't leave us half joined.
         self.bss = None;
+        self.ap = false;
         self.drain_tx(hc, dev).await;
         let mut io = Io::new(hc, dev);
         if self.pairwise_key {
@@ -800,11 +847,39 @@ impl Rt2800 {
 }
 
 /// TX_STA_CNT0..2, which clear when read (`run_calibrate_cb`).
+/// What a BSS needs of the MAC, ours or one we join: the slot time
+/// (`run_updateslot`), the preamble of our ACKs (`run_set_txpreamble`),
+/// the basic rates the chip answers at (`run_set_basicrates`, a bitmap of
+/// 1, 2, 5.5, 11, 6, 9, 12, 18, 24... Mbit/s), and the rate fallback on
+/// retries (`run_enable_mrr`).
+async fn link_cfg<H: HostController>(io: &mut Io<'_, H>, short_slot: bool, short_preamble: bool, basic: u32) -> Result<()> {
+    let v = io.read(BKOFF_SLOT_CFG).await?;
+    io.write(BKOFF_SLOT_CFG, (v & !SLOT_TIME_MASK) | if short_slot { 9 } else { 20 }).await?;
+    let v = io.read(AUTO_RSP_CFG).await?;
+    io.write(AUTO_RSP_CFG, if short_preamble { v | CCK_SHORT_EN } else { v & !CCK_SHORT_EN }).await?;
+    io.write(LEGACY_BASIC_RATE, basic).await?;
+    // On retries the chip steps down a rate each time (TX_RTY_CFG has
+    // the automatic fallback on): OFDM 54 -> 48 -> ... -> 6, CCK
+    // 11 -> 5.5 -> 2 -> 1. Entries: bit 3 = OFDM, low bits the index.
+    let ofdm = |i: u32| 8 | i;
+    io.write(
+        LG_FBK_CFG0,
+        ofdm(6) << 28 | ofdm(5) << 24 | ofdm(4) << 20 | ofdm(3) << 16 | ofdm(2) << 12 | ofdm(1) << 8 | ofdm(0) << 4 | ofdm(0),
+    )
+    .await?;
+    io.write(LG_FBK_CFG1, 2 << 12 | 1 << 8).await?;
+    // HT: MCS n -> n - 1 down to MCS 0 (Linux's values; MCS 8-15 for
+    // completeness, one stream has none).
+    io.write(HT_FBK_CFG0, 0x6543_2100).await?;
+    io.write(HT_FBK_CFG1, 0xedcb_a988).await?;
+    Ok(())
+}
+
 async fn read_tx_counters<H: HostController>(io: &mut Io<'_, H>) -> Result<TxCounters> {
     let mut b = [0u8; 12];
     io.read_region(TX_STA_CNT0, &mut b).await?;
     let w = |i: usize| u32::from_le_bytes([b[4 * i], b[4 * i + 1], b[4 * i + 2], b[4 * i + 3]]);
-    Ok(TxCounters { ok: w(1) & 0xffff, failed: w(0) & 0xffff, retries: w(1) >> 16 })
+    Ok(TxCounters { ok: w(1) & 0xffff, failed: w(0) & 0xffff, retries: w(1) >> 16, beacons: w(0) >> 16 })
 }
 
 /// A transmit transfer failed (`run_txeof`): log the first few.

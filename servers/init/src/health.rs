@@ -72,6 +72,8 @@ pub struct Trial {
     check_at: Option<u64>,
     boot_time: u64,
     test_fail: Option<&'static str>,
+    /// `setup_ap=force`: a test boot too.
+    setup_ap_force: bool,
     needs_net: bool,
     net: Option<Shared<Board>>,
     net_seq: u64,
@@ -89,6 +91,7 @@ impl Trial {
             check_at: opts.slot.filter(|_| !opts.selftest).map(|_| boot_time + CONFIRM_AFTER_MS * 1000),
             boot_time,
             test_fail: opts.test_fail,
+            setup_ap_force: opts.setup_ap_force,
             needs_net: init.children.iter().any(|c| c.prog.name == "net"),
             net: touchos_rt::shm::board_of(net_state, false),
             net_seq: 0,
@@ -109,7 +112,12 @@ impl Trial {
         if let Some(st) = self.net.as_ref().and_then(|n| n.read_as(&mut self.net_seq, &mut self.net_buf)) {
             self.net_status = st;
         }
-        let has_net = self.net_status.ipv4.is_some() && self.test_fail != Some("nonet");
+        // The setup network's address doesn't count: it reaches only the
+        // phone being set up, so a copy that ends up there (no Wi-Fi it
+        // can join, no cable) goes back on trial.
+        let has_net = self.net_status.ipv4.is_some()
+            && self.net_status.setup_ap.is_none()
+            && self.test_fail != Some("nonet");
         if let Some(storage) = self.nand.filter(|_| due && !self.nand_asked) {
             self.nand_asked = true;
             match nand_state(storage) {
@@ -149,6 +157,9 @@ impl Trial {
                 self.on_trial = false;
                 match self.test_fail {
                     Some(t) => warn!("copy {s}: a test boot (test_fail={t}) is never made the active copy"),
+                    None if self.setup_ap_force => {
+                        warn!("copy {s}: a test boot (setup_ap=force) is never made the active copy")
+                    }
                     None => match self.nand {
                         Some(storage) => nand_verdict(storage, s, true),
                         None => info!("copy {s} is healthy (no storage to record it in)"),

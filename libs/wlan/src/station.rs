@@ -51,23 +51,32 @@ fn log_ccmp_speed() {
 const NOT_FOUND_WAIT_MS: u64 = 10_000;
 const RETRY_WAIT_MS: u64 = 3000;
 
+/// Why [`serve`] returned.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Served {
+    /// The program is about to exit ([`leave`]).
+    Left,
+    /// The network wasn't found for `give_up_ms` (see [`serve`]).
+    NotFound,
+}
+
 /// Scan, join the best access point of `ssid`, stay connected while it
 /// lasts; then start over, waiting longer after each failure in a row.
-/// Returns only when the radio dies (or there is nothing configured).
-/// `ht`: associate as an 802.11n (and WMM) station where the access point
-/// is one; else always as a legacy 802.11g station.
-pub async fn serve<R: Radio>(r: &mut R, ssid: Option<&str>, psk: Option<&str>, ht: bool) -> Result<()> {
-    let (Some(ssid), Some(psk)) = (ssid, psk) else {
-        warn!("no [wifi] ssid/psk in touchos.toml; not connecting");
-        return Ok(());
-    };
+/// Returns when the program is leaving, or when the network hasn't been
+/// seen for `give_up_ms` (if given: the setup network's fallback); Err
+/// when the radio dies. `ht`: associate as an 802.11n (and WMM) station
+/// where the access point is one; else always as a legacy 802.11g
+/// station.
+pub async fn serve<R: Radio>(r: &mut R, ssid: &str, psk: &str, ht: bool, give_up_ms: Option<u64>) -> Result<Served> {
     if r.caps().keys == KeyMode::Software {
         log_ccmp_speed();
     }
     let mut failures = Backoff::default();
+    // Since when the network hasn't been seen.
+    let mut missing_since = time::now_ms();
     loop {
         if LEAVING.load(Ordering::SeqCst) {
-            return Ok(());
+            return Ok(Served::Left);
         }
         let nets = r.scan().await?;
         let mut candidates = scan::for_ssid(&nets, ssid.as_bytes());
@@ -78,6 +87,9 @@ pub async fn serve<R: Radio>(r: &mut R, ssid: Option<&str>, psk: Option<&str>, h
         );
         candidates.retain(|n| n.ccmp_psk);
         let Some(mut bss) = candidates.first().cloned() else {
+            if give_up_ms.is_some_and(|g| time::now_ms() - missing_since >= g) {
+                return Ok(Served::NotFound);
+            }
             let wait = failures.next(NOT_FOUND_WAIT_MS);
             warn!("configured network not found (or not WPA2-PSK/CCMP); rescanning in {} s", wait / 1000);
             exec::sleep_ms(wait).await;
@@ -102,12 +114,14 @@ pub async fn serve<R: Radio>(r: &mut R, ssid: Option<&str>, psk: Option<&str>, h
                 (false, false) => "802.11g",
             }
         );
+        missing_since = time::now_ms();
         match connect(r, bss, psk).await {
             Ok(mut station) => {
                 failures = Backoff::default();
                 if run(r, &mut station).await == Ended::Leaving {
-                    return Ok(());
+                    return Ok(Served::Left);
                 }
+                missing_since = time::now_ms();
             }
             Err(e) => warn!("connect failed: {e}"),
         }
@@ -369,6 +383,12 @@ async fn goodbye<R: Radio>(r: &mut R, s: &Station) {
 
 /// Set by [`leave`]: the program is about to exit.
 static LEAVING: AtomicBool = AtomicBool::new(false);
+
+/// [`leave`] was called: the program is about to exit (the setup
+/// network stops too).
+pub fn leaving() -> bool {
+    LEAVING.load(Ordering::SeqCst)
+}
 /// Connected: in [`run`], until the goodbye is sent.
 static CONNECTED: AtomicBool = AtomicBool::new(false);
 
@@ -530,7 +550,7 @@ async fn pump<R: Radio>(r: &mut R, s: &mut Station) -> Ended {
 const IDLE_WAIT_MS: u64 = 100;
 
 /// Our bit for "the net server queued a frame" (registered once).
-fn tx_bit() -> usize {
+pub(crate) fn tx_bit() -> usize {
     static BIT: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
     match BIT.load(core::sync::atomic::Ordering::Relaxed) {
         0 => {

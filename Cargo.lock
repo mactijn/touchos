@@ -1319,6 +1319,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "touchos-setupnet"
+version = "0.1.0"
+dependencies = [
+ "touchos-mdns",
+]
+
+[[package]]
 name = "touchos-srv-boiler"
 version = "0.1.0"
 dependencies = [
@@ -1346,6 +1353,7 @@ version = "0.1.0"
 dependencies = [
  "log",
  "touchos-drv",
+ "touchos-proto",
  "touchos-rt",
 ]
 
@@ -1397,6 +1405,7 @@ dependencies = [
  "touchos-mdns",
  "touchos-proto",
  "touchos-rt",
+ "touchos-setupnet",
 ]
 
 [[package]]
@@ -1560,6 +1569,7 @@ dependencies = [
  "pbkdf2",
  "sha1",
  "touchos-drv",
+ "touchos-proto",
  "touchos-rt",
 ]
 

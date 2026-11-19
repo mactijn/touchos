@@ -114,20 +114,26 @@ pub mod link {
         }
     }
 
-    fn publish(mac: Option<[u8; 6]>) {
+    fn publish(mac: Option<[u8; 6]>, ap: Option<touchos_proto::net::HostName>) {
         if let Some(l) = l() {
-            l.state.write_as(&Link { mac });
+            l.state.write_as(&Link { mac, ap });
             let _ = sys::mem_notify(l.state.mem());
             let _ = sys::mem_notify(l.rx.mem());
         }
     }
 
     pub fn up(mac: [u8; 6]) {
-        publish(Some(mac));
+        publish(Some(mac), None);
+    }
+
+    /// Up as an access point of our own: the setup network `ssid` (net
+    /// then takes the setup address and serves DHCP and DNS on it).
+    pub fn up_ap(mac: [u8; 6], ssid: touchos_proto::net::HostName) {
+        publish(Some(mac), Some(ssid));
     }
 
     pub fn down() {
-        publish(None);
+        publish(None, None);
     }
 
     /// A frame arrived from the network.

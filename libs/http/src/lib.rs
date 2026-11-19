@@ -152,10 +152,43 @@ pub fn parse_head(buf: &[u8]) -> Result<(Request, usize, usize), Error> {
     ))
 }
 
+/// The captive-portal checks of phones and computers (Android,
+/// Apple, Windows, Firefox): on the setup network they are sent to the
+/// setup page, so the device opens it by itself.
+pub const CAPTIVE_PROBES: &[&str] = &[
+    "/generate_204",
+    "/gen_204",
+    "/hotspot-detect.html",
+    "/library/test/success.html",
+    "/connecttest.txt",
+    "/ncsi.txt",
+    "/redirect",
+    "/canonical.html",
+    "/success.txt",
+];
+
+/// On the setup network, where every DNS name leads to the panel: a
+/// redirect to `to` for a captive-portal check, or for any request whose
+/// `Host` isn't one of `ours` (the panel's address and names). Requests
+/// for a foreign host are never served, only sent on: a page of another
+/// site that ended up here gets nothing of the panel's.
+pub fn captive_redirect(req: &Request, ours: &[&str], to: &str) -> Option<Response> {
+    let host = req.header("host").map(|h| h.rsplit_once(':').map_or(h, |(n, _)| n));
+    let foreign = !host.is_some_and(|h| ours.iter().any(|o| o.eq_ignore_ascii_case(h)));
+    (foreign || CAPTIVE_PROBES.contains(&req.path.as_str())).then(|| {
+        Response::new(302, "text/html; charset=utf-8", format!("<a href=\"{to}\">Set up the panel</a>\n"))
+            .header("Location", to)
+            .header("Cache-Control", "no-store")
+    })
+}
+
 pub fn reason(status: u16) -> &'static str {
     match status {
         200 => "OK",
         204 => "No Content",
+        302 => "Found",
+        303 => "See Other",
+        307 => "Temporary Redirect",
         400 => "Bad Request",
         401 => "Unauthorized",
         403 => "Forbidden",
@@ -244,6 +277,34 @@ pub fn json_str(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn captive_portal() {
+        let ours = ["192.168.4.1", "touchos-221a2b.local"];
+        let to = "http://192.168.4.1/setup";
+        let get = |host: &str, path: &str| {
+            parse(format!("GET {path} HTTP/1.1\r\nHost: {host}\r\n\r\n").as_bytes()).unwrap()
+        };
+        // Our own page: served.
+        assert!(captive_redirect(&get("192.168.4.1", "/"), &ours, to).is_none());
+        assert!(captive_redirect(&get("Touchos-221A2B.local:80", "/api/session"), &ours, to).is_none());
+        // Phones' checks, and anything for another host: sent to setup.
+        for (host, path) in [
+            ("connectivitycheck.gstatic.com", "/generate_204"),
+            ("captive.apple.com", "/hotspot-detect.html"),
+            ("www.msftconnecttest.com", "/connecttest.txt"),
+            ("example.com", "/"),
+            ("192.168.4.1", "/generate_204"),
+        ] {
+            let r = captive_redirect(&get(host, path), &ours, to).unwrap();
+            assert_eq!(r.status, 302, "{host}{path}");
+            assert!(r.headers.iter().any(|(k, v)| k == "Location" && v == to));
+            assert!(String::from_utf8(r.to_bytes()).unwrap().starts_with("HTTP/1.1 302 Found\r\n"));
+        }
+        // No Host at all: not ours either.
+        let r = parse(b"GET / HTTP/1.0\r\n\r\n").unwrap();
+        assert!(captive_redirect(&r, &ours, to).is_some());
+    }
 
     #[test]
     fn parses_a_request_with_body() {

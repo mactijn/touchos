@@ -74,7 +74,19 @@ fn mdns_call(label: u32, kind: &str, instance: &str, port: u16, txt: &[&str]) ->
     }
 }
 
-/// Wait until DHCP has given us an address; returns it.
+/// Wait until there is a way out: an address from DHCP, not the setup
+/// network's (which reaches nothing but the phone being set up).
+pub async fn wait_online() {
+    loop {
+        if let Some(Status { ipv4: Some(_), setup_ap: None, .. }) = status() {
+            return;
+        }
+        exec::sleep_ms(500).await;
+    }
+}
+
+/// Wait until we have an address (from DHCP, or the setup network's);
+/// returns it.
 pub async fn wait_configured() -> (IpAddress, u8) {
     loop {
         if let Some(Status { ipv4: Some(ip), .. }) = status() {

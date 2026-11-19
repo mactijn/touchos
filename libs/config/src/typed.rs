@@ -44,6 +44,21 @@ pub struct Wifi {
     pub psk: Option<String>,
     /// Associate as an 802.11n (and WMM) station where the access point is one.
     pub ht: bool,
+    /// When the panel opens its setup network.
+    pub setup_ap: SetupAp,
+    /// `SetupAp::Fallback`: after the configured network is gone this long.
+    pub setup_after_min: u32,
+    pub setup_channel: u8,
+}
+
+/// `wifi.setup_ap`: when the open setup network (`touchos-xxxxxx`) is up.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SetupAp {
+    /// While no Wi-Fi network is set and no Ethernet cable is in.
+    Unconfigured,
+    /// Also when the configured network has been gone `setup_after_min`.
+    Fallback,
+    Off,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -283,6 +298,13 @@ impl Config {
                 ssid: string("wifi.ssid"),
                 psk: string("wifi.psk"),
                 ht: v.get("wifi.ht").and_then(Value::as_bool).unwrap_or(true),
+                setup_ap: match string("wifi.setup_ap").as_deref() {
+                    Some("fallback") => SetupAp::Fallback,
+                    Some("off") => SetupAp::Off,
+                    _ => SetupAp::Unconfigured,
+                },
+                setup_after_min: int("wifi.setup_after_min") as u32,
+                setup_channel: int("wifi.setup_channel") as u8,
             },
             display: Display {
                 brightness: int("display.brightness") as u8,
@@ -353,6 +375,8 @@ mod tests {
         assert_eq!(c.display.dim_brightness, 15);
         assert_eq!(c.display.dim_after_seconds, 60);
         assert_eq!(c.display.rotation, Rotation::Auto);
+        assert_eq!(c.wifi.setup_ap, SetupAp::Unconfigured);
+        assert_eq!((c.wifi.setup_after_min, c.wifi.setup_channel), (10, 6));
         assert_eq!(c.time.zone, touchos_civil::Tz::UTC);
         assert!(c.display.ui);
         assert_eq!(c.time.ntp_server, "time.google.com");
