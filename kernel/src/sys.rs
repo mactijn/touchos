@@ -63,6 +63,7 @@ pub fn dispatch(f: &mut SyscallFrame) {
         nr::MEM_WAIT => mem_wait(a, b),
         nr::MEM_NOTIFY => mem_notify(a),
         nr::RANDOM => random(a, b),
+        nr::STATS => stats(a, b, c),
         _ => Err(Error::NoSys),
     };
     match r {
@@ -158,6 +159,48 @@ fn klog_read(sys: u64, buf: u64, len: u64, cursor: u64) -> R {
     let (n, next) = crate::klog::ring_read(cursor, &mut tmp);
     me()?.space.lock().write(buf, &tmp[..n])?;
     Ok((n as u64, next))
+}
+
+/// `STATS`: the kernel's figures (`touchos_abi::stats`) into a user
+/// buffer → (bytes written, bytes needed); nothing is written if it
+/// doesn't fit.
+fn stats(sys: u64, buf: u64, len: u64) -> R {
+    use touchos_abi::stats;
+    system(sys, rights::STATS)?;
+    let now = crate::time::now_us();
+    let threads = task::stats(now);
+    let irqs: alloc::vec::Vec<_> = crate::irqs::counts().map(|(line, count)| stats::Irq { line, count }).collect();
+    let need = stats::size(threads.len(), irqs.len());
+    if need > stats::MAX_BYTES {
+        return Err(Error::Full);
+    }
+    if (len as usize) < need {
+        return Ok((0, need as u64));
+    }
+    let (heap_used, heap_size) = crate::mem::heap_usage();
+    let h = stats::Header {
+        version: stats::VERSION,
+        threads: threads.len() as u32,
+        irqs: irqs.len() as u32,
+        cores: crate::arch::MAX_CPUS as u32,
+        uptime_us: now,
+        ticks: crate::time::ticks(),
+        idle_us: task::IDLE_US.load(core::sync::atomic::Ordering::Relaxed),
+        switches: crate::arch::SWITCHES.load(core::sync::atomic::Ordering::Relaxed) as u64,
+        free_bytes: crate::mem::free_bytes(),
+        heap_used,
+        heap_size,
+    };
+    let mut out = alloc::vec::Vec::with_capacity(need);
+    out.extend_from_slice(stats::bytes(&h));
+    for t in &threads {
+        out.extend_from_slice(stats::bytes(t));
+    }
+    for i in &irqs {
+        out.extend_from_slice(stats::bytes(i));
+    }
+    me()?.space.lock().write(buf, &out)?;
+    Ok((need as u64, need as u64))
 }
 
 // ---- capabilities ----

@@ -145,6 +145,7 @@ pub fn spawn(spec: Spawn) -> Result<Arc<ProcInfo>, &'static str> {
         pin: None,
         runs: 0,
         runs_seen: 0,
+        cpu_us: 0,
     });
     with(|s| {
         s.threads.push(thread);

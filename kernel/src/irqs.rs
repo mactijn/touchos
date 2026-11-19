@@ -18,6 +18,18 @@ use crate::arch::irq as interrupts;
 /// Sources at once: the i.MX's 64 lines.
 const SLOTS: usize = 64;
 
+/// How often each line fired (the STATS syscall reports them).
+static COUNTS: [core::sync::atomic::AtomicU32; SLOTS] = [const { core::sync::atomic::AtomicU32::new(0) }; SLOTS];
+
+/// The lines that have fired: (line, times).
+pub fn counts() -> impl Iterator<Item = (u32, u32)> {
+    COUNTS
+        .iter()
+        .enumerate()
+        .map(|(i, c)| (i as u32, c.load(core::sync::atomic::Ordering::Relaxed)))
+        .filter(|&(_, n)| n > 0)
+}
+
 /// One claimed source (the object behind an `Irq` capability). Dropping
 /// the last capability masks it and frees its slot. (Init keeps the
 /// capabilities it hands out, so a restarted driver gets the same source
@@ -83,6 +95,9 @@ pub fn ack(irq: &IrqLine) {
 /// it (if it is a line) and signals the driver; false if nobody has bound
 /// it (the caller masks it and complains).
 pub fn fire(slot: usize) -> bool {
+    if let Some(c) = COUNTS.get(slot) {
+        c.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+    }
     let (b, s) = {
         let t = TABLE.lock();
         let Some(e) = t.get(slot) else { return false };
