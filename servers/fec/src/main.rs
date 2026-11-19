@@ -291,7 +291,13 @@ async fn run(regs: Regs) {
             if now_up && !up {
                 info!("link up, {} duplex", if full { "full" } else { "half" });
                 f.start(full);
-                link::up(f.mac);
+                // A test hook for boards without Wi-Fi (QEMU): the wired
+                // link plays the setup network (`setup_ap=force`).
+                if touchos_rt::arg("setup_ap") == Some("force") {
+                    link::up_ap(f.mac, touchos_proto::net::default_hostname(f.mac));
+                } else {
+                    link::up(f.mac);
+                }
             } else if !now_up && up {
                 info!("link down");
                 f.stop();

@@ -4,8 +4,12 @@
 //! Ralink RT5370 on the board's EHCI (USB host 2), driven by `rt5370` with
 //! libs/rt2800 (a port of OpenBSD's run(4)).
 //!
+//! Without a network configured (and no cable in, "wired_state"), it runs
+//! the open setup network `touchos-xxxxxx` instead (touchos_wlan::ap).
+//!
 //! Capabilities: "firmware" (rt3071.bin), "config" (FULL: the Wi-Fi
-//! password), "link_rx"/"link_tx"/"link_state", "regs" (the USB block's
+//! password), "link_rx"/"link_tx"/"link_state", "wired_state" (the cable's
+//! link, read-only), "regs" (the USB block's
 //! page, with the arguments "ehci <controller offset> [ulpi]").
 //! When the Wi-Fi settings change, the program exits with exit::RESTART
 //! and init starts it again at once. When the radio fails (bring-up, or a
@@ -52,7 +56,8 @@ async fn watch_settings() {
 /// The chip's firmware, from the "firmware" capability.
 static FIRMWARE: Once<&'static [u8]> = Once::new();
 
-/// Find a supported chip, bring it up, and be a station on it.
+/// Find a supported chip, bring it up, and be a station on it, or the
+/// setup network.
 async fn task() {
     station::log_self_test();
     let fw = FIRMWARE.get().copied();
@@ -60,13 +65,105 @@ async fn task() {
     let Some(mut radio) = radio else {
         return; // no chip, or it failed (logged)
     };
-    let cfg = &config::get().wifi;
-    if let Err(e) = station::serve(&mut radio, cfg.ssid.as_deref(), cfg.psk.as_deref(), cfg.ht).await {
-        log::error!("station stopped: {e}");
+    let cfg = config::get().wifi.clone();
+    if let Err(e) = run(&mut radio, &cfg).await {
+        log::error!("Wi-Fi stopped: {e}");
         // Start over with a fresh process: the chip is reset and brought
         // up again (on the Toon also the USB port).
         restart_later().await;
     }
+}
+
+/// With `wifi.setup_ap = "fallback"`: how long the setup network stays up
+/// (longer while a phone is on it), and how long the station looks for its
+/// own network before the setup network comes back.
+const FALLBACK_AP_MS: u64 = 5 * 60_000;
+const FALLBACK_SCAN_MS: u64 = 60_000;
+
+/// How long after start a cable may take to come up before the setup
+/// network does (the Ethernet link takes a few seconds after boot).
+const CABLE_GRACE_MS: u64 = 10_000;
+
+/// The station for the configured network, or the setup network:
+/// - `setup_ap=force` on the kernel command line (a test boot): the setup
+///   network, whatever the settings and the cable;
+/// - a network is configured: the station; with `setup_ap = "fallback"`,
+///   the setup network while it has been gone for `setup_after_min`, in
+///   turns with looking for it again;
+/// - none: the setup network unless `setup_ap = "off"`, while no cable is in.
+async fn run(r: &mut rt5370::Rt5370, cfg: &touchos_config::Wifi) -> touchos_wlan::Result<()> {
+    use touchos_config::SetupAp;
+    let ap_ssid = touchos_proto::net::default_hostname(touchos_wlan::radio::Radio::mac(r));
+    let channel = cfg.setup_channel;
+    if touchos_rt::arg("setup_ap") == Some("force") {
+        log::warn!("setup_ap=force: the setup network, whatever the settings and the cable (a test boot)");
+        touchos_wlan::ap::serve(r, ap_ssid, channel, |_| station::leaving()).await?;
+        return Ok(());
+    }
+    if let (Some(ssid), Some(psk)) = (&cfg.ssid, &cfg.psk) {
+        let mut give_up = (cfg.setup_ap == SetupAp::Fallback).then(|| cfg.setup_after_min as u64 * 60_000);
+        loop {
+            match station::serve(r, ssid, psk, cfg.ht, give_up).await? {
+                station::Served::Left => return Ok(()),
+                station::Served::NotFound if wired_up() => {
+                    log::info!("the configured network is gone, but a cable is in: no setup network");
+                    give_up = Some(FALLBACK_SCAN_MS);
+                }
+                station::Served::NotFound => {
+                    log::warn!(
+                        "the configured network has been gone for {} min: the setup network {} for a while",
+                        give_up.unwrap_or(0) / 60_000,
+                        ap_ssid.as_str()
+                    );
+                    let until = time::now_ms() + FALLBACK_AP_MS;
+                    touchos_wlan::ap::serve(r, ap_ssid, channel, |ap| {
+                        station::leaving() || wired_up() || (time::now_ms() >= until && ap.associated() == 0)
+                    })
+                    .await?;
+                    touchos_wlan::radio::Radio::reset(r).await?;
+                    give_up = Some(FALLBACK_SCAN_MS);
+                }
+            }
+        }
+    }
+    if cfg.setup_ap == SetupAp::Off {
+        log::warn!("no Wi-Fi network configured, and the setup network is off (wifi.setup_ap); not connecting");
+        return Ok(());
+    }
+    // Unconfigured: the setup network while no cable is in.
+    while time::now_ms() < CABLE_GRACE_MS && !wired_up() {
+        exec::sleep_ms(500).await;
+    }
+    let mut said = false;
+    loop {
+        if station::leaving() {
+            return Ok(());
+        }
+        if wired_up() {
+            if !said {
+                log::info!("no Wi-Fi network configured; an Ethernet cable is in, so no setup network");
+                said = true;
+            }
+            exec::sleep_ms(2000).await;
+            continue;
+        }
+        said = false;
+        log::info!("no Wi-Fi network configured and no cable: the setup network {}", ap_ssid.as_str());
+        touchos_wlan::ap::serve(r, ap_ssid, channel, |_| station::leaving() || wired_up()).await?;
+        touchos_wlan::radio::Radio::reset(r).await?;
+    }
+}
+
+/// Whether the wired link is up (its link board, read-only).
+fn wired_up() -> bool {
+    static BOARD: spin::Once<Option<touchos_rt::shm::Shared<touchos_rt::shm::Board>>> = spin::Once::new();
+    let Some(b) = BOARD.call_once(|| touchos_rt::shm::board("wired_state", false)) else {
+        return false;
+    };
+    let mut buf = alloc::vec::Vec::new();
+    b.read(0, &mut buf)
+        .and_then(|_| touchos_proto::decode::<touchos_proto::net::Link>(&buf))
+        .is_some_and(|l| l.mac.is_some())
 }
 
 /// After a failure: wait this long, then exit for init to start us

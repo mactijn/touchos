@@ -48,6 +48,9 @@ pub struct Opts {
     pub slot: Option<char>,
     /// `test_fail=`: any value makes a test boot (never confirmed).
     pub test_fail: Option<&'static str>,
+    /// `setup_ap=force` (a test boot, never confirmed): the Wi-Fi server
+    /// runs the setup network even with a cable in, and net prefers it.
+    pub setup_ap_force: bool,
     pub autoreboot: Option<u64>,
 }
 
@@ -65,6 +68,7 @@ impl Opts {
                 _ => None,
             },
             test_fail: touchos_rt::arg("test_fail"),
+            setup_ap_force: touchos_rt::arg("setup_ap") == Some("force"),
             autoreboot: touchos_rt::arg("autoreboot").and_then(|s| s.parse().ok()),
         }
     }
