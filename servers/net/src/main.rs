@@ -387,6 +387,22 @@ pub fn with_net<R>(f: impl FnOnce(&mut Net) -> R) -> Option<R> {
     with(|s| s.net.as_mut().map(f))
 }
 
+/// The interface's generation: bumped whenever it is made again (a link
+/// change). A socket handle is only good for the generation it was made
+/// in: a new interface has a new socket set.
+pub fn generation() -> u32 {
+    with(|s| s.generation)
+}
+
+/// Like [`with_net`], but only while the interface is still that of
+/// `generation` (for handles kept across awaits).
+pub fn with_net_of<R>(generation: u32, f: impl FnOnce(&mut Net) -> R) -> Option<R> {
+    with(|s| {
+        let g = s.generation;
+        s.net.as_mut().filter(|_| g == generation).map(f)
+    })
+}
+
 fn status(st: &State) -> Status {
     Status {
         ipv4: st
@@ -680,7 +696,8 @@ pub async fn resolve(name: &str) -> Option<IpAddress> {
     if let Ok(ip) = name.parse::<Ipv4Address>() {
         return Some(IpAddress::Ipv4(ip));
     }
-    let q = with_net(|n| {
+    let generation = generation();
+    let q = with_net_of(generation, |n| {
         let cx = n.iface.context();
         n.sockets
             .get_mut::<dns::Socket>(n.dns)
@@ -689,7 +706,8 @@ pub async fn resolve(name: &str) -> Option<IpAddress> {
     })??;
     let end = time::now_ms() + 5000;
     loop {
-        let r = with_net(|n| n.sockets.get_mut::<dns::Socket>(n.dns).get_query_result(q))?;
+        // None (the link changed meanwhile): the query went with it.
+        let r = with_net_of(generation, |n| n.sockets.get_mut::<dns::Socket>(n.dns).get_query_result(q))?;
         match r {
             Ok(addrs) => return addrs.first().copied(),
             Err(dns::GetQueryResultError::Pending) if time::now_ms() < end => {

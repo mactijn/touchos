@@ -8,7 +8,7 @@ use smoltcp::socket::udp;
 use smoltcp::wire::{IpAddress, IpEndpoint};
 use touchos_rt::{exec, sys, time};
 
-use crate::{resolve, wait_configured, with_net};
+use crate::{generation, resolve, wait_configured, with_net, with_net_of};
 
 const NTP_UNIX_OFFSET: u64 = 2_208_988_800; // seconds from 1900 to 1970
 
@@ -17,7 +17,10 @@ async fn query(server: &str) -> Option<u64> {
 }
 
 async fn query_ip(ip: IpAddress) -> Option<u64> {
-    let handle = with_net(|n| {
+    // The socket belongs to this interface: if the link changes while we
+    // wait, it is gone with it (and its handle means nothing in the next).
+    let generation = generation();
+    let handle = with_net_of(generation, |n| {
         let mut s = udp::Socket::new(
             udp::PacketBuffer::new(vec![udp::PacketMetadata::EMPTY; 2], vec![0; 256]),
             udp::PacketBuffer::new(vec![udp::PacketMetadata::EMPTY; 2], vec![0; 256]),
@@ -29,7 +32,7 @@ async fn query_ip(ip: IpAddress) -> Option<u64> {
     let mut req = [0u8; 48];
     req[0] = 0x23; // LI 0, version 4, mode 3 (client)
     let ep = IpEndpoint::new(ip, 123);
-    let sent = with_net(|n| {
+    let sent = with_net_of(generation, |n| {
         n.sockets
             .get_mut::<udp::Socket>(handle)
             .send_slice(&req, ep)
@@ -40,7 +43,7 @@ async fn query_ip(ip: IpAddress) -> Option<u64> {
     if sent {
         let end = time::now_ms() + 3000;
         while time::now_ms() < end {
-            let r = with_net(|n| {
+            let r = with_net_of(generation, |n| {
                 let s = n.sockets.get_mut::<udp::Socket>(handle);
                 let mut buf = [0u8; 64];
                 s.recv_slice(&mut buf).ok().map(|(len, _)| (len, buf))
@@ -56,7 +59,7 @@ async fn query_ip(ip: IpAddress) -> Option<u64> {
             exec::sleep_ms(20).await;
         }
     }
-    with_net(|n| n.sockets.remove(handle));
+    with_net_of(generation, |n| n.sockets.remove(handle));
     result
 }
 
