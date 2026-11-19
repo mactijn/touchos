@@ -16,6 +16,11 @@ token = "PASTE-TOKEN-HERE"
 # ssid = "MyNetwork"
 # psk = "my wifi password"
 # ht = false            # connect as an 802.11g device even where the access point does 802.11n
+# Without ssid (and no cable), the panel opens its own open network touchos-xxxxxx
+# for setting it up at http://192.168.4.1; "fallback": also when ssid is gone a while.
+# setup_ap = "fallback"  # or "off"
+# setup_after_min = 10
+# setup_channel = 6
 
 [debug]
 # Optional: send the kernel log as UDP lines to your PC (`cargo xtask log` receives them).

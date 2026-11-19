@@ -48,7 +48,7 @@ ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 ```
 
-`rt2860reg.h` carries the same notice under "Copyright (c) 2007 Damien Bergamini". `libs/wlan/src/amrr.rs` (the RT5370's rate control) is a port of OpenBSD's `sys/net80211/ieee80211_amrr.c`, under the same notice with "Copyright (c) 2006 Damien Bergamini".
+`rt2860reg.h` carries the same notice under "Copyright (c) 2007 Damien Bergamini". run(4) has no access point mode: the setup network's beacon and TSF set-up (`Rt2800::start_ap`, `txwi::beacon`) is ported from OpenBSD's `sys/dev/ic/rt2860.c` (`rt2860_setup_beacon`, `rt2860_enable_tsf_sync` for HOSTAP), under the same notice with "Copyright (c) 2007-2010 Damien Bergamini". `libs/wlan/src/amrr.rs` (the RT5370's rate control) is a port of OpenBSD's `sys/net80211/ieee80211_amrr.c`, under the same notice with "Copyright (c) 2006 Damien Bergamini".
 
 ## Fonts (`servers/ui/fonts/`)
 

@@ -104,7 +104,7 @@ On your PC, in the touchos checkout:
    zstd -d /lib/firmware/rt3071.bin.zst -o build/firmware/rt3071.bin   # or: cp /lib/firmware/rt3071.bin build/firmware/
    ```
    (`sudo apt install firmware-misc-nonfree` if it's missing.) Without it the build still works, with Ethernet only.
-2. **Settings.** Copy the example and fill in your Home Assistant host, its token, and `[wifi]`:
+2. **Settings.** Copy the example and fill in your Home Assistant host, its token, and `[wifi]` (or leave `[wifi]` out and set the panel up later over its own setup network, [step 8](#8-the-settings-page)):
    ```sh
    cp config/touchos.example.toml config/touchos.toml
    ```
@@ -144,6 +144,8 @@ From now on the Toon starts touchos at every power-on, and the watchdog restarts
 Open `http://touchos-xxxxxx.local/` in a browser on the same network: `xxxxxx` is the end of the Wi-Fi MAC address, and the log has the name and the IP address (`web: settings page at ...`). If `.local` names don't work on your computer, use the IP address (`http://<panel-ip>/`). Click "Show a code on the panel" and type the 6-digit code from the Toon's screen. You can then change every setting, choose and order tiles, see the log, and install updates.
 
 The page is plain HTTP: anyone on your network can read what you send it.
+
+**Without Wi-Fi settings and without a cable**, the Toon opens its own open network, `touchos-xxxxxx`, and its screen says so: join it with a phone, open `http://192.168.4.1`, pair, and fill in the Wi-Fi page. [settings.md](settings.md#the-setup-network) has the details.
 
 ## 9. Updates
 
